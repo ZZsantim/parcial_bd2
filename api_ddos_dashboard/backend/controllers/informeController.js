@@ -1,4 +1,5 @@
 import {
+  getDashboardAnalitica,
   getDashboardInformes,
   getDashboardResumen,
   getDashboardSeries,
@@ -48,6 +49,23 @@ export const getSeries = async (req, res) => {
   }
 };
 
+export const getAnalitica = async (req, res) => {
+  try {
+    const days = parseLimit(req.query.days, 7, 90);
+    const limit = parseLimit(req.query.limit, 8, 30);
+    if (days === null || limit === null) {
+      return res.status(400).json({
+        message: 'Los parámetros days (1–90) y limit (1–30) deben ser enteros válidos.',
+      });
+    }
+    const data = await getDashboardAnalitica(days, limit);
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('[API] Error al obtener analítica del dashboard:', error);
+    res.status(500).json({ message: 'Error al obtener la analítica del dashboard.' });
+  }
+};
+
 export const getInformes = async (req, res) => {
   try {
     const limit = parseLimit(req.query.limit, 20, 100);
@@ -66,5 +84,6 @@ export default {
   getResumen,
   getTopIps,
   getSeries,
+  getAnalitica,
   getInformes,
 };

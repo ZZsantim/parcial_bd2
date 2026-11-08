@@ -1,20 +1,38 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import consultaRoutes from './routes/consultaRoutes.js';
 import informeRoutes from './routes/informeRoutes.js';
 import { getDB } from './config/db.js';
+import {
+  getChangeStreamStatus,
+  streamFlowEvents,
+} from './services/changeStreamService.js';
+import { getOllamaStatus } from './services/consultaService.js';
 
 const app = express();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '16kb' }));
 app.use(express.urlencoded({ extended: true }));
+
+app.get('/api/events/flows', streamFlowEvents);
 
 app.get('/api/health', async (_req, res) => {
   try {
-    await getDB().command({ ping: 1 });
+    const database = getDB();
+    const [, ollama] = await Promise.all([
+      database.command({ ping: 1 }),
+      getOllamaStatus(),
+    ]);
     res.status(200).json({
       status: 'ok',
       database: 'connected',
+      realtime: getChangeStreamStatus(),
+      ollama,
       service: 'api-ddos-dashboard',
       timestamp: new Date().toISOString(),
     });
@@ -29,6 +47,9 @@ app.get('/api/health', async (_req, res) => {
 });
 
 app.use('/api/informes', informeRoutes);
+app.use('/api/consultas', consultaRoutes);
+
+app.use(express.static(path.resolve(__dirname, '../frontend')));
 
 app.use((_req, res) => {
   res.status(404).json({ message: 'Ruta no encontrada.' });

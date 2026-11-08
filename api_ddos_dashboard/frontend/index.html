@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101722">
+    <title>Sentinel · Dashboard DDoS</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="brand" href="#inicio" aria-label="Sentinel, inicio">
+          <span class="brand-mark">S</span>
+          <span><strong>sentinel</strong><small>NETWORK INTELLIGENCE</small></span>
+        </a>
+
+        <p class="nav-label">ESPACIO DE TRABAJO</p>
+        <nav class="navigation" aria-label="Navegación principal">
+          <a class="nav-item active" href="#inicio"><span aria-hidden="true">▦</span> Resumen</a>
+          <a class="nav-item" href="#informes"><span aria-hidden="true">▤</span> Informes</a>
+          <a class="nav-item" href="#actividad"><span aria-hidden="true">⌁</span> Flujos recientes</a>
+          <a class="nav-item" href="#asistente"><span aria-hidden="true">✳</span> Consultar con IA</a>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <div class="connection-card">
+            <span class="connection-light" id="databaseLight"></span>
+            <div><strong id="databaseStatus">Conectando a MongoDB</strong><small id="databaseDetail">Comprobando conexión</small></div>
+          </div>
+          <div class="connection-card">
+            <span class="connection-light" id="streamLight"></span>
+            <div><strong id="streamStatus">Tiempo real</strong><small id="streamDetail">Abriendo change stream</small></div>
+          </div>
+          <div class="connection-card">
+            <span class="connection-light" id="aiLight"></span>
+            <div><strong id="aiStatus">Ollama local</strong><small id="aiDetail">Verificando modelo</small></div>
+          </div>
+          <p class="sidebar-foot">CIC-DDoS2019 <span>·</span> Datos de MongoDB</p>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="breadcrumbs">Seguridad de red <span>/</span> <strong>Centro de análisis</strong></div>
+          <div class="top-actions">
+            <span class="live-pill"><i></i> MONITOREO ACTIVO</span>
+            <button class="icon-button" id="refreshButton" type="button" aria-label="Actualizar datos" title="Actualizar datos">↻</button>
+          </div>
+        </header>
+
+        <section class="page-content" id="inicio">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">VISTA GENERAL</p>
+              <h1>Panorama de tráfico</h1>
+              <p class="subtitle">Analítica de flujos y actividad DDoS conectada a MongoDB.</p>
+            </div>
+            <p class="updated-label" id="updatedAt">Esperando datos…</p>
+          </div>
+
+          <p class="eyebrow report-overview-label" id="metricReportTitle">INFORME 1 · INDICADORES GENERALES</p>
+          <div class="metric-grid" aria-live="polite">
+            <article class="metric-card">
+              <div class="metric-title">Flujos almacenados <span class="metric-icon blue">▤</span></div>
+              <strong class="metric-value" id="metricTotal">—</strong>
+              <small>Estimación de la colección</small>
+            </article>
+            <article class="metric-card">
+              <div class="metric-title">Ataques en la muestra <span class="metric-icon orange">⌁</span></div>
+              <strong class="metric-value" id="metricAttacks">—</strong>
+              <small id="metricSample">Esperando muestra</small>
+            </article>
+            <article class="metric-card">
+              <div class="metric-title">Porcentaje de ataque <span class="metric-icon red">◉</span></div>
+              <strong class="metric-value" id="metricRate">—</strong>
+              <small>En los flujos analizados</small>
+            </article>
+            <article class="metric-card">
+              <div class="metric-title">Tipo más frecuente <span class="metric-icon green">⌖</span></div>
+              <strong class="metric-value metric-word" id="metricType">—</strong>
+              <small>Excluye tráfico benigno</small>
+            </article>
+          </div>
+
+          <div class="analytics-grid">
+            <section class="panel chart-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">INFORME 2 · TENDENCIA</p><h2>Flujos por día</h2></div>
+                <span class="realtime-badge">Actualiza en vivo</span>
+                <span class="sample-label" id="seriesSample">Muestra reciente</span>
+              </div>
+              <div class="chart" id="seriesChart" aria-label="Flujos por día"></div>
+              <div class="chart-legend"><span><i class="legend-blue"></i>Todos los flujos</span><span><i class="legend-orange"></i>Ataques</span></div>
+            </section>
+
+            <section class="panel ips-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">INFORME 3 · ORÍGENES</p><h2>IPs con más ataques</h2></div>
+                <span class="realtime-badge">Actualiza en vivo</span>
+              </div>
+              <div id="topIps" class="ip-list" aria-live="polite"></div>
+              <p class="panel-footnote" id="ipsSample">Cálculo sobre la muestra reciente</p>
+            </section>
+          </div>
+
+          <section class="report-grid" id="informes" aria-label="Informes analíticos">
+            <article class="panel report-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">INFORME 4 · CLASIFICACIÓN</p><h2>Tipos de ataque</h2></div>
+                <span class="realtime-badge">Actualiza en vivo</span>
+              </div>
+              <p class="report-question">¿Qué amenazas concentran los flujos maliciosos?</p>
+              <div id="attackTypes" class="ranked-list" aria-live="polite"></div>
+              <p class="panel-footnote">Excluye tráfico BENIGN; permite priorizar reglas de defensa.</p>
+            </article>
+
+            <article class="panel report-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">INFORME 5 · DESTINOS</p><h2>Destinos más atacados</h2></div>
+                <span class="realtime-badge">Actualiza en vivo</span>
+              </div>
+              <p class="report-question">¿Qué activos reciben más tráfico malicioso?</p>
+              <div id="topDestinations" class="ranked-list" aria-live="polite"></div>
+              <p class="panel-footnote">IPs destino clasificadas como ataque en la muestra.</p>
+            </article>
+
+            <article class="panel report-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">INFORME 6 · PROTOCOLOS</p><h2>Tráfico por protocolo</h2></div>
+              </div>
+              <p class="report-question">¿Qué protocolos transportan más flujos y ataques?</p>
+              <div id="protocols" class="ranked-list" aria-live="polite"></div>
+              <p class="panel-footnote">Ayuda a priorizar inspección por protocolo.</p>
+            </article>
+
+            <article class="panel report-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">INFORME 7 · SERVICIOS</p><h2>Puertos destino afectados</h2></div>
+              </div>
+              <p class="report-question">¿Qué servicios deben recibir atención prioritaria?</p>
+              <div id="destinationPorts" class="ranked-list" aria-live="polite"></div>
+              <p class="panel-footnote">Conteo de ataques por puerto destino.</p>
+            </article>
+
+            <article class="panel report-panel">
+              <div class="panel-heading">
+                <div><p class="eyebrow">INFORME 8 · HORARIOS</p><h2>Horas de mayor actividad</h2></div>
+              </div>
+              <p class="report-question">¿En qué horas se concentra el tráfico malicioso?</p>
+              <div id="hourlyActivity" class="ranked-list" aria-live="polite"></div>
+              <p class="panel-footnote">Hora local tal como está registrada en CIC-DDoS2019.</p>
+            </article>
+          </section>
+
+          <section class="panel live-report" aria-labelledby="liveReportHeading">
+            <div class="panel-heading">
+              <div><p class="eyebrow">INFORME 12 · MONITOREO EN TIEMPO REAL</p><h2 id="liveReportHeading">Cambios recientes en MongoDB</h2></div>
+              <span class="realtime-badge" id="liveReportStatus">Conectando…</span>
+            </div>
+            <div class="live-report-summary">
+              <strong id="liveEventCount">0</strong>
+              <span>cambios recibidos desde que se abrió este dashboard</span>
+              <span id="liveLastChange">Aún no se reciben cambios</span>
+            </div>
+            <ol class="live-event-list" id="liveEventList" aria-live="polite">
+              <li>Esperando inserciones, actualizaciones o eliminaciones en la colección.</li>
+            </ol>
+          </section>
+
+          <section class="panel table-panel" id="actividad">
+            <div class="panel-heading">
+              <div><p class="eyebrow">DETALLE DE FLUJOS</p><h2>Flujos más recientes</h2></div>
+              <span class="sample-label">Últimos registros de MongoDB</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Hora</th><th>IP origen</th><th>IP destino</th><th>Protocolo</th><th>Clasificación</th><th>Duración</th></tr></thead>
+                <tbody id="flowRows"><tr><td class="empty-cell" colspan="6">Cargando flujos…</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="assistant-section" id="asistente">
+            <div class="assistant-intro">
+              <p class="eyebrow">ANÁLISIS ASISTIDO</p>
+              <h2>Pregunta a tus datos</h2>
+              <p>Escribe una pregunta en español. Ollama genera una consulta de solo lectura y MongoDB la ejecuta sobre los 10 000 flujos más recientes.</p>
+              <div class="prompt-suggestions">
+                <button type="button" data-prompt="¿Cuáles son los tipos de ataque más frecuentes?">INFORME 9 · Tipos de ataque</button>
+                <button type="button" data-prompt="¿Cuántos flujos son benignos y cuántos son ataques?">INFORME 10 · Benignos vs. ataques</button>
+                <button type="button" data-prompt="¿Qué IP de origen tiene más ataques?">INFORME 11 · IP con más ataques</button>
+              </div>
+            </div>
+            <div class="assistant-panel">
+              <div class="assistant-heading"><span class="assistant-avatar">✳</span><div><strong>Asistente Sentinel</strong><small>Ollama local · consultas de solo lectura</small></div></div>
+              <div class="conversation" id="conversation" aria-live="polite">
+                <article class="message assistant-message"><p>Hola. Puedo analizar los flujos de red recientes. Pregúntame por los tipos de ataque, IP de origen, protocolos o volúmenes de tráfico.</p></article>
+              </div>
+              <form class="question-form" id="questionForm">
+                <label class="sr-only" for="questionInput">Pregunta sobre los flujos de red</label>
+                <textarea id="questionInput" rows="2" maxlength="500" placeholder="Ej.: ¿Qué tipo de ataque aparece más en la muestra?" required></textarea>
+                <button id="askButton" type="submit" aria-label="Enviar pregunta">Enviar <span aria-hidden="true">↑</span></button>
+              </form>
+              <p class="privacy-note">La pregunta y el esquema se envían a Ollama en esta máquina. No se envían documentos del dataset al modelo.</p>
+            </div>
+          </section>
+          <p class="page-error" id="pageError" role="status"></p>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

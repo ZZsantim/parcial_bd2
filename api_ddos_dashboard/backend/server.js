@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import app from './app.js';
 import { closeDB, connectDB } from './config/db.js';
+import { startChangeStream, stopChangeStream } from './services/changeStreamService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,12 +14,17 @@ const port = Number(process.env.PORT || 3000);
 
 const startServer = async () => {
   await connectDB();
+  await startChangeStream();
 
   const server = app.listen(port, () => {
     console.log(`[HTTP] Servidor escuchando en http://localhost:${port}`);
   });
 
+  let shuttingDown = false;
   const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    await stopChangeStream();
     server.close(async () => {
       try {
         await closeDB();

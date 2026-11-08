@@ -1,0 +1,205 @@
+import {
+  ejecutarConsultaGenerada,
+  validarPipeline,
+} from '../repositories/llmRepository.js';
+
+const ollamaUrl = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+const ollamaModel = process.env.OLLAMA_MODEL || 'kimi-k2.5';
+const ollamaTimeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 120_000);
+
+const fieldDescription = [
+  '_id (id BSON)',
+  'Flow ID (string)',
+  'Source IP (string)',
+  'Source Port (number)',
+  'Destination IP (string)',
+  'Destination Port (number)',
+  'Protocol (number)',
+  'Timestamp (string ISO-like: YYYY-MM-DD HH:mm:ss.ffffff)',
+  'Flow Duration (number, microseconds)',
+  'Total Fwd Packets (number)',
+  'Total Backward Packets (number)',
+  'Total Length of Fwd Packets (number)',
+  'Total Length of Bwd Packets (number)',
+  'Flow Bytes/s (number)',
+  'Flow Packets/s (number)',
+  'Fwd Packets/s (number)',
+  'Bwd Packets/s (number)',
+  'SYN Flag Count (number)',
+  'ACK Flag Count (number)',
+  'FIN Flag Count (number)',
+  'RST Flag Count (number)',
+  'Inbound (number)',
+  'Label (string; BENIGN indicates benign traffic, other labels are attack types)',
+].join('\n- ');
+
+const systemPrompt = `Eres un asistente de analítica para flujos de red CIC-DDoS2019.
+Convierte la pregunta en una consulta MongoDB de solo lectura y responde ÚNICAMENTE un objeto JSON válido con esta forma:
+{"pipeline":[{"$match":{...}},{"$group":{"_id":"$Label","cantidad":{"$sum":1}}},{"$sort":{"cantidad":-1}}],"explanation":"Explicación breve en español"}
+
+La consulta se ejecutará en una muestra de los 10 000 flujos más recientes, no en toda la colección.
+Si preguntan por ataques, tráfico malicioso o tipos DDoS, excluye Label BENIGN (puede aparecer como BENIGN, Benign o BENIGN con espacios). Si comparan explícitamente benigno contra ataque, conserva ambas clases.
+Si preguntan por los N primeros o más frecuentes, agrega $limit con N después de ordenar.
+Solo puedes usar etapas $match, $group, $project, $sort, $limit y $count.
+Solo puedes usar campos de estos documentos:
+- ${fieldDescription}
+Los operadores de filtro permitidos son $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin y $exists; $and/$or se permiten para combinar filtros.
+En expresiones solo puedes usar agregadores y operadores aritméticos/lógicos básicos. Nunca uses acceso a otras colecciones, $where, JavaScript, $function, $out, $merge, $lookup, $unionWith, ni etapas de escritura.
+No inventes campos. No devuelvas Markdown, bloques de código ni texto fuera del JSON.
+Si no puedes interpretar la pregunta, usa pipeline [] y explica qué aclaración hace falta.`;
+
+const normalizeQuestion = (question) => question
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase();
+
+const excludeBenignForAttackQuestion = (question, pipeline) => {
+  const normalized = normalizeQuestion(question);
+  const asksAboutAttacks = /\bataques?\b|\bddos\b|\bmalicios[oa]s?\b/.test(normalized);
+  const comparesWithBenign = /\bbenign[oa]s?\b|\bcompar(ar|acion|a)\b|\bfrente a\b|\bcontra\b/.test(normalized);
+  if (!asksAboutAttacks || comparesWithBenign) return pipeline;
+
+  const attackFilter = { Label: { $nin: ['BENIGN', 'Benign', 'BENIGN '] } };
+  if (pipeline[0]?.$match) {
+    pipeline[0] = { $match: { $and: [attackFilter, pipeline[0].$match] } };
+  } else {
+    pipeline.unshift({ $match: attackFilter });
+  }
+  return pipeline;
+};
+
+const asksForBenignAttackCounts = (question) => {
+  const normalized = normalizeQuestion(question);
+  const asksForCounts = /\bcuant[oa]s?\b|\bconteo\b|\bcantidad(?:es)?\b|\bporcentaje\b|\bproporcion\b/.test(normalized);
+  const asksAboutBenignAndAttacks = /\bbenign[oa]s?\b/.test(normalized) && /\bataques?\b/.test(normalized);
+  return asksForCounts && asksAboutBenignAndAttacks;
+};
+
+export const prepararPipelineParaPregunta = (question, pipeline) => {
+  if (asksForBenignAttackCounts(question)) {
+    return [
+      {
+        $group: {
+          _id: {
+            $cond: [
+              { $in: ['$Label', ['BENIGN', 'Benign', 'BENIGN ']] },
+              'BENIGN',
+              'Ataque',
+            ],
+          },
+          flujos: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ];
+  }
+
+  return excludeBenignForAttackQuestion(question, pipeline);
+};
+
+const parseModelResponse = (content) => {
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw Object.assign(new Error('Ollama no devolvió una respuesta JSON válida.'), { statusCode: 502 });
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw Object.assign(new Error('Ollama devolvió una respuesta con formato inválido.'), { statusCode: 502 });
+  }
+
+  if (!Array.isArray(parsed.pipeline) || typeof parsed.explanation !== 'string') {
+    throw Object.assign(new Error('La respuesta de Ollama no contiene pipeline y explicación.'), { statusCode: 502 });
+  }
+
+  return parsed;
+};
+
+export const getOllamaStatus = async () => {
+  try {
+    const response = await fetch(`${ollamaUrl}/api/tags`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!response.ok) return { status: 'unavailable', model: ollamaModel };
+
+    const body = await response.json();
+    const found = body.models?.some((model) => (
+      model.name === ollamaModel || model.model === ollamaModel
+    ));
+    return {
+      status: found ? 'ready' : 'model_missing',
+      model: ollamaModel,
+    };
+  } catch {
+    return { status: 'unavailable', model: ollamaModel };
+  }
+};
+
+export const consultarEnLenguajeNatural = async (question) => {
+  let response;
+  try {
+    response = await fetch(`${ollamaUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: ollamaModel,
+        stream: false,
+        format: 'json',
+        options: { temperature: 0, num_predict: 1024 },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: question },
+        ],
+      }),
+      signal: AbortSignal.timeout(ollamaTimeoutMs),
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      throw Object.assign(new Error('Ollama tardó demasiado en responder. Verifica el modelo local y vuelve a intentar.'), { statusCode: 504 });
+    }
+    throw Object.assign(new Error('No se pudo conectar con Ollama local. Inícialo y confirma OLLAMA_URL.'), { statusCode: 503 });
+  }
+
+  if (!response.ok) {
+    const responseText = await response.text();
+    console.error(`[Ollama] HTTP ${response.status}: ${responseText.slice(0, 300)}`);
+    if (response.status === 404) {
+      throw Object.assign(new Error(`Ollama no encuentra el modelo "${ollamaModel}". Descárgalo con ollama pull o configura OLLAMA_MODEL.`), { statusCode: 503 });
+    }
+    throw Object.assign(new Error(`Ollama respondió con HTTP ${response.status}.`), { statusCode: 502 });
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw Object.assign(new Error('Ollama respondió con un cuerpo inválido.'), { statusCode: 502 });
+  }
+
+  const generated = parseModelResponse(result.message?.content ?? '');
+  if (generated.pipeline.length === 0) {
+    return {
+      explanation: generated.explanation,
+      pipeline: [],
+      totalResultados: 0,
+      resultados: [],
+      muestra: 10_000,
+    };
+  }
+
+  const pipeline = prepararPipelineParaPregunta(question, generated.pipeline);
+  validarPipeline(pipeline);
+  const results = await ejecutarConsultaGenerada(pipeline);
+  return {
+    explanation: asksForBenignAttackCounts(question)
+      ? 'Compara el conteo de flujos benignos y ataques en los 10 000 flujos más recientes.'
+      : generated.explanation,
+    pipeline,
+    totalResultados: results.length,
+    resultados: results,
+    muestra: 10_000,
+  };
+};
+
+export default { consultarEnLenguajeNatural };

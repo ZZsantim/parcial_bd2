@@ -13,6 +13,21 @@ const recentSampleStages = [
   { $limit: SAMPLE_SIZE },
 ];
 
+const seriesStages = (days) => [
+  { $match: { Timestamp: { $type: 'string' } } },
+  {
+    $group: {
+      _id: { $substrBytes: ['$Timestamp', 0, 10] },
+      total: { $sum: 1 },
+      ataques: { $sum: { $cond: [isAttack, 1, 0] } },
+    },
+  },
+  { $sort: { _id: -1 } },
+  { $limit: days },
+  { $sort: { _id: 1 } },
+  { $project: { _id: 0, fecha: '$_id', total: 1, ataques: 1 } },
+];
+
 export const getResumen = async () => {
   const collection = getFlowsCollection();
   const [totalFlujosEstimado, [result = null] = []] = await Promise.all([
@@ -144,20 +159,7 @@ export const getSeries = async (days = 7) => {
         ...recentSampleStages,
         {
           $facet: {
-            datos: [
-              { $match: { Timestamp: { $type: 'string' } } },
-              {
-                $group: {
-                  _id: { $substrBytes: ['$Timestamp', 0, 10] },
-                  total: { $sum: 1 },
-                  ataques: { $sum: { $cond: [isAttack, 1, 0] } },
-                },
-              },
-              { $sort: { _id: -1 } },
-              { $limit: days },
-              { $sort: { _id: 1 } },
-              { $project: { _id: 0, fecha: '$_id', total: 1, ataques: 1 } },
-            ],
+            datos: seriesStages(days),
             metadata: [{ $count: 'flujosAnalizados' }],
           },
         },
@@ -169,6 +171,89 @@ export const getSeries = async (days = 7) => {
   return {
     flujosAnalizados: result.metadata[0]?.flujosAnalizados ?? 0,
     datos: result.datos ?? [],
+  };
+};
+
+export const getAnalitica = async (days = 7, limit = 8) => {
+  const [result = {}] = await getFlowsCollection()
+    .aggregate(
+      [
+        ...recentSampleStages,
+        {
+          $facet: {
+            metadata: [{ $count: 'flujosAnalizados' }],
+            series: seriesStages(days),
+            tiposAtaque: [
+              { $match: { Label: { $exists: true, $nin: benignLabels } } },
+              { $group: { _id: '$Label', cantidad: { $sum: 1 } } },
+              { $sort: { cantidad: -1, _id: 1 } },
+              { $limit: limit },
+              { $project: { _id: 0, tipo: '$_id', cantidad: 1 } },
+            ],
+            ipsDestino: [
+              {
+                $match: {
+                  Label: { $exists: true, $nin: benignLabels },
+                  'Destination IP': { $exists: true, $ne: null },
+                },
+              },
+              { $group: { _id: '$Destination IP', ataques: { $sum: 1 } } },
+              { $sort: { ataques: -1, _id: 1 } },
+              { $limit: limit },
+              { $project: { _id: 0, ip: '$_id', ataques: 1 } },
+            ],
+            protocolos: [
+              { $match: { Protocol: { $exists: true, $ne: null } } },
+              {
+                $group: {
+                  _id: '$Protocol',
+                  flujos: { $sum: 1 },
+                  ataques: { $sum: { $cond: [isAttack, 1, 0] } },
+                },
+              },
+              { $sort: { flujos: -1, _id: 1 } },
+              { $limit: limit },
+              { $project: { _id: 0, protocolo: '$_id', flujos: 1, ataques: 1 } },
+            ],
+            puertosDestino: [
+              {
+                $match: {
+                  Label: { $exists: true, $nin: benignLabels },
+                  'Destination Port': { $exists: true, $ne: null },
+                },
+              },
+              { $group: { _id: '$Destination Port', ataques: { $sum: 1 } } },
+              { $sort: { ataques: -1, _id: 1 } },
+              { $limit: limit },
+              { $project: { _id: 0, puerto: '$_id', ataques: 1 } },
+            ],
+            horas: [
+              { $match: { Timestamp: { $type: 'string' } } },
+              {
+                $group: {
+                  _id: { $substrBytes: ['$Timestamp', 11, 2] },
+                  flujos: { $sum: 1 },
+                  ataques: { $sum: { $cond: [isAttack, 1, 0] } },
+                },
+              },
+              { $sort: { _id: 1 } },
+              { $project: { _id: 0, hora: '$_id', flujos: 1, ataques: 1 } },
+            ],
+          },
+        },
+      ],
+      { maxTimeMS: 15_000, allowDiskUse: false },
+    )
+    .toArray();
+
+  return {
+    flujosAnalizados: result.metadata?.[0]?.flujosAnalizados ?? 0,
+    series: result.series ?? [],
+    tiposAtaque: result.tiposAtaque ?? [],
+    ipsDestino: result.ipsDestino ?? [],
+    protocolos: result.protocolos ?? [],
+    puertosDestino: result.puertosDestino ?? [],
+    horas: result.horas ?? [],
   };
 };
 
@@ -204,5 +289,6 @@ export default {
   getResumen,
   getTopIps,
   getSeries,
+  getAnalitica,
   getInformes,
 };
