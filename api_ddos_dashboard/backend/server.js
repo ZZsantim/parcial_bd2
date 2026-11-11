@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import app from './app.js';
 import { closeDB, connectDB } from './config/db.js';
 import { startChangeStream, stopChangeStream } from './services/changeStreamService.js';
+import { calentarOllama } from './services/consultaService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,7 @@ const startServer = async () => {
 
   const server = app.listen(port, () => {
     console.log(`[HTTP] Servidor escuchando en http://localhost:${port}`);
+    calentarOllama();
   });
 
   let shuttingDown = false;

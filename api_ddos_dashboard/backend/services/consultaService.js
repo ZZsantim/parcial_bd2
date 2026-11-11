@@ -117,25 +117,35 @@ const parseModelResponse = (content) => {
   return parsed;
 };
 
+// /api/tags dice si el modelo está instalado; /api/ps, si está cargado en memoria (estado).
 export const getOllamaStatus = async () => {
-  try {
-    const response = await fetch(`${ollamaUrl}/api/tags`, {
-      signal: AbortSignal.timeout(2_000),
-    });
-    if (!response.ok) return { status: 'unavailable', model: ollamaModel };
+  const leer = (ruta) => fetch(`${ollamaUrl}${ruta}`, { signal: AbortSignal.timeout(2_000) })
+    .then((response) => (response.ok ? response.json() : null))
+    .catch(() => null);
+  const tieneModelo = (body) => body?.models?.some((model) => (
+    model.name === ollamaModel || model.model === ollamaModel
+  )) ?? false;
 
-    const body = await response.json();
-    const found = body.models?.some((model) => (
-      model.name === ollamaModel || model.model === ollamaModel
-    ));
-    return {
-      status: found ? 'ready' : 'model_missing',
-      model: ollamaModel,
-    };
-  } catch {
-    return { status: 'unavailable', model: ollamaModel };
-  }
+  const [tags, ps] = await Promise.all([leer('/api/tags'), leer('/api/ps')]);
+  return {
+    status: !tags ? 'unavailable' : tieneModelo(tags) ? 'ready' : 'model_missing',
+    model: ollamaModel,
+    estado: tieneModelo(ps) ? 'activo' : 'inactivo',
+  };
 };
+
+// Carga el modelo en memoria sin caducidad (keep_alive -1). No bloquea el arranque.
+export const calentarOllama = () => fetch(`${ollamaUrl}/api/generate`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ model: ollamaModel, keep_alive: -1 }),
+  signal: AbortSignal.timeout(ollamaTimeoutMs),
+})
+  .then((response) => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    console.log(`[Ollama] Modelo ${ollamaModel} cargado en memoria (keep_alive -1)`);
+  })
+  .catch((error) => console.warn(`[Ollama] Aviso: no se pudo precargar ${ollamaModel}: ${error.message}`));
 
 export const consultarEnLenguajeNatural = async (question) => {
   let response;
@@ -147,6 +157,7 @@ export const consultarEnLenguajeNatural = async (question) => {
         model: ollamaModel,
         stream: false,
         think: false,
+        keep_alive: -1,
         format: 'json',
         options: { temperature: 0, num_predict: 1024 },
         messages: [
