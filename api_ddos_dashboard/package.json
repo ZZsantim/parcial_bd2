@@ -8,7 +8,8 @@
     "dev": "node --watch backend/server.js",
     "test": "node --test backend/tests/*.test.js",
     "db:indexes": "node backend/scripts/createIndexes.js",
-    "db:explain": "node backend/scripts/benchmarkIndexes.js"
+    "db:explain": "node backend/scripts/benchmarkIndexes.js",
+    "db:resumenes": "node backend/scripts/buildResumenes.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

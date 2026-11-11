@@ -54,6 +54,8 @@ export const getDB = () => {
   return db;
 };
 
+export const flowsCollectionName = collectionName;
+
 export const getFlowsCollection = () => getDB().collection(collectionName);
 
 export const closeDB = () => client.close();
