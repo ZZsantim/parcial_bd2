@@ -1,24 +1,23 @@
 {
   "meta": {
-    "fecha": "2026-11-11T22:04:16.975Z",
+    "fecha": "2026-11-11T22:26:27.813Z",
     "baseDatos": "ddos_db",
     "coleccion": "flujos_limpia",
     "documentos": 70427637,
     "tamanoDatosBytes": 149323717399,
-    "tamanoAlmacenamientoBytes": 18568671232,
+    "tamanoAlmacenamientoBytes": 18570526720,
     "versionMongo": "9.0.4",
     "ramBytes": 16873545728,
     "cacheWiredTigerBytes": 7898923008,
-    "corridasIndice": 1,
+    "corridasIndice": 3,
     "corridasCollscan": 1,
     "maxTimeMS": 0,
-    "procesosEnMarcha": "no anotado",
     "indices": [
       {
         "nombre": "idxtimestamp",
         "campos": "{ Timestamp: 1 }",
         "tipo": "Simple",
-        "consulta": "Informes por periodo: `find`/`$match` por rango de `Timestamp` (no medida en este benchmark)",
+        "consulta": "(e) `{ Timestamp: { $gte, $lt } }`",
         "justificacion": "Limita las consultas por ventana de tiempo al rango de claves pedido en lugar de recorrer los 70 M de flujos."
       },
       {
@@ -62,7 +61,7 @@
       },
       "conIndice": [
         {
-          "inicio": "2026-11-11T21:50:27.533Z",
+          "inicio": "2026-11-11T22:18:06.768Z",
           "cortada": false,
           "plan": "IXSCAN",
           "indice": "idx_source_ip",
@@ -70,69 +69,57 @@
             "FETCH",
             "IXSCAN"
           ],
-          "executionTimeMillis": 7,
+          "executionTimeMillis": 4,
           "totalDocsExamined": 38,
           "totalKeysExamined": 38,
           "nReturned": 38,
-          "wallMillis": 14
-        }
-      ],
-      "sinIndice": [
+          "wallMillis": 6
+        },
         {
-          "inicio": "2026-11-11T21:50:27.547Z",
-          "cortada": false,
-          "plan": "COLLSCAN",
-          "indice": null,
-          "etapas": [
-            "COLLSCAN"
-          ],
-          "executionTimeMillis": 173969,
-          "totalDocsExamined": 70427637,
-          "totalKeysExamined": 0,
-          "nReturned": 38,
-          "wallMillis": 173973
-        }
-      ]
-    },
-    {
-      "id": "b",
-      "titulo": "Etiqueta rara (WebDDoS)",
-      "consulta": "db.flujos_limpia.find({ Label: \"WebDDoS\" })",
-      "indiceEsperado": "idx_label",
-      "filtro": {
-        "Label": "WebDDoS"
-      },
-      "conIndice": [
-        {
-          "inicio": "2026-11-11T21:53:21.522Z",
+          "inicio": "2026-11-11T22:18:06.775Z",
           "cortada": false,
           "plan": "IXSCAN",
-          "indice": "idx_label",
+          "indice": "idx_source_ip",
           "etapas": [
             "FETCH",
             "IXSCAN"
           ],
-          "executionTimeMillis": 79,
-          "totalDocsExamined": 439,
-          "totalKeysExamined": 439,
-          "nReturned": 439,
-          "wallMillis": 81
+          "executionTimeMillis": 0,
+          "totalDocsExamined": 38,
+          "totalKeysExamined": 38,
+          "nReturned": 38,
+          "wallMillis": 1
+        },
+        {
+          "inicio": "2026-11-11T22:18:06.776Z",
+          "cortada": false,
+          "plan": "IXSCAN",
+          "indice": "idx_source_ip",
+          "etapas": [
+            "FETCH",
+            "IXSCAN"
+          ],
+          "executionTimeMillis": 0,
+          "totalDocsExamined": 38,
+          "totalKeysExamined": 38,
+          "nReturned": 38,
+          "wallMillis": 0
         }
       ],
       "sinIndice": [
         {
-          "inicio": "2026-11-11T21:53:21.603Z",
+          "inicio": "2026-11-11T22:18:06.777Z",
           "cortada": false,
           "plan": "COLLSCAN",
           "indice": null,
           "etapas": [
             "COLLSCAN"
           ],
-          "executionTimeMillis": 248345,
+          "executionTimeMillis": 133288,
           "totalDocsExamined": 70427637,
           "totalKeysExamined": 0,
-          "nReturned": 439,
-          "wallMillis": 248351
+          "nReturned": 38,
+          "wallMillis": 133296
         }
       ]
     },
@@ -150,7 +137,7 @@
       },
       "conIndice": [
         {
-          "inicio": "2026-11-11T21:57:29.954Z",
+          "inicio": "2026-11-11T22:20:20.073Z",
           "cortada": false,
           "plan": "IXSCAN",
           "indice": "idx_label_timestamp",
@@ -158,69 +145,132 @@
             "FETCH",
             "IXSCAN"
           ],
-          "executionTimeMillis": 15,
+          "executionTimeMillis": 11,
           "totalDocsExamined": 83,
           "totalKeysExamined": 83,
           "nReturned": 83,
-          "wallMillis": 18
-        }
-      ],
-      "sinIndice": [
+          "wallMillis": 12
+        },
         {
-          "inicio": "2026-11-11T21:57:29.972Z",
-          "cortada": false,
-          "plan": "COLLSCAN",
-          "indice": null,
-          "etapas": [
-            "COLLSCAN"
-          ],
-          "executionTimeMillis": 195478,
-          "totalDocsExamined": 70427637,
-          "totalKeysExamined": 0,
-          "nReturned": 83,
-          "wallMillis": 195476
-        }
-      ]
-    },
-    {
-      "id": "d",
-      "titulo": "Protocolo poco frecuente (Protocol 0)",
-      "consulta": "db.flujos_limpia.find({ Protocol: 0 })",
-      "indiceEsperado": "idx_protocol",
-      "filtro": {
-        "Protocol": 0
-      },
-      "conIndice": [
-        {
-          "inicio": "2026-11-11T22:00:45.449Z",
+          "inicio": "2026-11-11T22:20:20.086Z",
           "cortada": false,
           "plan": "IXSCAN",
-          "indice": "idx_protocol",
+          "indice": "idx_label_timestamp",
           "etapas": [
             "FETCH",
             "IXSCAN"
           ],
-          "executionTimeMillis": 1599,
-          "totalDocsExamined": 3998,
-          "totalKeysExamined": 3998,
-          "nReturned": 3998,
-          "wallMillis": 1602
+          "executionTimeMillis": 1,
+          "totalDocsExamined": 83,
+          "totalKeysExamined": 83,
+          "nReturned": 83,
+          "wallMillis": 2
+        },
+        {
+          "inicio": "2026-11-11T22:20:20.088Z",
+          "cortada": false,
+          "plan": "IXSCAN",
+          "indice": "idx_label_timestamp",
+          "etapas": [
+            "FETCH",
+            "IXSCAN"
+          ],
+          "executionTimeMillis": 1,
+          "totalDocsExamined": 83,
+          "totalKeysExamined": 83,
+          "nReturned": 83,
+          "wallMillis": 1
         }
       ],
       "sinIndice": [
         {
-          "inicio": "2026-11-11T22:00:47.051Z",
+          "inicio": "2026-11-11T22:20:20.090Z",
           "cortada": false,
           "plan": "COLLSCAN",
           "indice": null,
           "etapas": [
             "COLLSCAN"
           ],
-          "executionTimeMillis": 209915,
+          "executionTimeMillis": 210057,
           "totalDocsExamined": 70427637,
           "totalKeysExamined": 0,
-          "nReturned": 3998,
-          "wallMillis": 209923
+          "nReturned": 83,
+          "wallMillis": 210062
+        }
+      ]
+    },
+    {
+      "id": "e",
+      "titulo": "Rango de Timestamp sin Label (5 minutos)",
+      "consulta": "db.flujos_limpia.find({ Timestamp: { $gte: \"2018-11-03 17:00:00\", $lt: \"2018-11-03 17:05:00\" } })",
+      "indiceEsperado": "idxtimestamp",
+      "filtro": {
+        "Timestamp": {
+          "$gte": "2018-11-03 17:00:00",
+          "$lt": "2018-11-03 17:05:00"
+        }
+      },
+      "conIndice": [
+        {
+          "inicio": "2026-11-11T22:23:50.153Z",
+          "cortada": false,
+          "plan": "IXSCAN",
+          "indice": "idxtimestamp",
+          "etapas": [
+            "FETCH",
+            "IXSCAN"
+          ],
+          "executionTimeMillis": 3,
+          "totalDocsExamined": 292,
+          "totalKeysExamined": 292,
+          "nReturned": 292,
+          "wallMillis": 5
+        },
+        {
+          "inicio": "2026-11-11T22:23:50.158Z",
+          "cortada": false,
+          "plan": "IXSCAN",
+          "indice": "idxtimestamp",
+          "etapas": [
+            "FETCH",
+            "IXSCAN"
+          ],
+          "executionTimeMillis": 0,
+          "totalDocsExamined": 292,
+          "totalKeysExamined": 292,
+          "nReturned": 292,
+          "wallMillis": 1
+        },
+        {
+          "inicio": "2026-11-11T22:23:50.159Z",
+          "cortada": false,
+          "plan": "IXSCAN",
+          "indice": "idxtimestamp",
+          "etapas": [
+            "FETCH",
+            "IXSCAN"
+          ],
+          "executionTimeMillis": 0,
+          "totalDocsExamined": 292,
+          "totalKeysExamined": 292,
+          "nReturned": 292,
+          "wallMillis": 1
+        }
+      ],
+      "sinIndice": [
+        {
+          "inicio": "2026-11-11T22:23:50.160Z",
+          "cortada": false,
+          "plan": "COLLSCAN",
+          "indice": null,
+          "etapas": [
+            "COLLSCAN"
+          ],
+          "executionTimeMillis": 157645,
+          "totalDocsExamined": 70427637,
+          "totalKeysExamined": 0,
+          "nReturned": 292,
+          "wallMillis": 157653
         }
       ]
     }

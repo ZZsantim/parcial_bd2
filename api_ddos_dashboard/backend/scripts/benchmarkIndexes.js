@@ -5,7 +5,7 @@
 //
 // Variables opcionales:
 //   BENCH_RUNS=3            corridas con índice por consulta
-//   BENCH_RUNS_COLLSCAN=3   corridas con COLLSCAN forzado por consulta (por defecto = BENCH_RUNS)
+//   BENCH_RUNS_COLLSCAN=1   corridas con COLLSCAN forzado por consulta (cada una tarda minutos)
 //   BENCH_MAX_TIME_MS=...   tope por ejecución (por defecto sin tope); si se supera, la corrida se marca como cortada
 //   BENCH_ONLY=a,c          ejecutar solo algunas consultas
 import fs from 'fs/promises';
@@ -21,7 +21,7 @@ const docsDir = path.resolve(__dirname, '../../docs');
 const jsonPath = path.join(docsDir, 'benchmark-indices.json');
 const mdPath = path.join(docsDir, 'optimizacion-indices.md');
 const RUNS = Number(process.env.BENCH_RUNS) || 3;
-const RUNS_COLLSCAN = Number(process.env.BENCH_RUNS_COLLSCAN) || RUNS;
+const RUNS_COLLSCAN = Number(process.env.BENCH_RUNS_COLLSCAN) || 1;
 const MAX_TIME_MS = Number(process.env.BENCH_MAX_TIME_MS) || 0;
 const ONLY = process.env.BENCH_ONLY?.split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -31,7 +31,7 @@ const indices = [
     nombre: 'idxtimestamp',
     campos: '{ Timestamp: 1 }',
     tipo: 'Simple',
-    consulta: 'Informes por periodo: `find`/`$match` por rango de `Timestamp` (no medida en este benchmark)',
+    consulta: '(e) `{ Timestamp: { $gte, $lt } }`',
     justificacion: 'Limita las consultas por ventana de tiempo al rango de claves pedido en lugar de recorrer los 70 M de flujos.',
   },
   {
@@ -92,6 +92,13 @@ const queries = [
     consulta: 'db.flujos_limpia.find({ Protocol: 0 })',
     indiceEsperado: 'idx_protocol',
     filter: { Protocol: 0 },
+  },
+  {
+    id: 'e',
+    titulo: 'Rango de Timestamp sin Label (5 minutos)',
+    consulta: 'db.flujos_limpia.find({ Timestamp: { $gte: "2018-11-03 17:00:00", $lt: "2018-11-03 17:05:00" } })',
+    indiceEsperado: 'idxtimestamp',
+    filter: { Timestamp: { $gte: '2018-11-03 17:00:00', $lt: '2018-11-03 17:05:00' } },
   },
 ];
 
@@ -154,6 +161,7 @@ const median = (values) => {
 
 // ---- Markdown a partir del JSON ----
 
+const corridas = (n) => `${n} ${n === 1 ? 'corrida' : 'corridas'}`;
 const fmt = (n) => (n === null || n === undefined ? '—' : n.toLocaleString('es-CO'));
 
 const stats = (runs) => {
@@ -204,7 +212,11 @@ const toMarkdown = ({ meta, resultados }) => {
   });
   const interpretations = resultados.map((q) => `- **${q.id})** \`${q.consulta}\` — ${interpret(q, stats(q.conIndice), stats(q.sinIndice))}`);
   const timesPerRun = resultados.map((q) => `- **${q.id})** con índice: ${stats(q.conIndice).tiempos.map((t) => t ?? 'cortada').join(', ')} ms; COLLSCAN: ${stats(q.sinIndice).tiempos.map((t) => t ?? 'cortada').join(', ')} ms`);
-  const reducido = meta.corridasCollscan < meta.corridasIndice;
+  const minutos = (ms) => (ms / 60000).toFixed(1).replace('.', ',');
+  const collscan = resultados.flatMap((q) => stats(q.sinIndice).tiempos.filter((t) => t !== null));
+  const reducido = meta.corridasCollscan < meta.corridasIndice && collscan.length
+    ? ` Sin índice se hizo ${corridas(meta.corridasCollscan)} por consulta porque cada COLLSCAN tarda entre ${minutos(Math.min(...collscan))} y ${minutos(Math.max(...collscan))} minutos.`
+    : '';
 
   return [
     '# Optimización con índices en `flujos_limpia`',
@@ -213,7 +225,7 @@ const toMarkdown = ({ meta, resultados }) => {
     '',
     `- Colección \`${meta.baseDatos}.${meta.coleccion}\`: ${fmt(meta.documentos)} documentos, ${gib(meta.tamanoDatosBytes)} GiB de datos sin comprimir (${gib(meta.tamanoAlmacenamientoBytes)} GiB en disco). MongoDB ${meta.versionMongo}.`,
     `- Equipo: ${gib(meta.ramBytes)} GiB de RAM; caché de WiredTiger de ${gib(meta.cacheWiredTigerBytes)} GiB.`,
-    `- Cada consulta se ejecutó sin \`limit\` con \`explain("executionStats")\`: ${meta.corridasIndice} corridas con el plan del planificador y ${meta.corridasCollscan} con COLLSCAN forzado.${reducido ? ' **Las corridas de COLLSCAN se redujeron** porque el total estimado superaba 1 hora.' : ''}`,
+    `- Cada consulta se ejecutó sin \`limit\` con \`explain("executionStats")\`: ${corridas(meta.corridasIndice)} con el plan del planificador y ${corridas(meta.corridasCollscan)} con COLLSCAN forzado.${reducido}`,
     `- \`maxTimeMS\`: ${meta.maxTimeMS ? `${fmt(meta.maxTimeMS)} ms` : 'sin tope'}.`,
     '',
     '## Índices',
@@ -240,7 +252,6 @@ const toMarkdown = ({ meta, resultados }) => {
     '',
     '- El "antes" no se obtuvo borrando los índices: se forzó el COLLSCAN con `hint({ $natural: 1 })`, que recorre la colección en orden natural igual que si el índice no existiera. Así no se tocaron índices ni datos. El "después" es el plan que elige el planificador sin `hint`.',
     `- Los tiempos dependen de la caché del sistema. La colección (${gib(meta.tamanoDatosBytes)} GiB) no cabe en la caché de WiredTiger (${gib(meta.cacheWiredTigerBytes)} GiB) ni en la RAM (${gib(meta.ramBytes)} GiB), así que cada COLLSCAN lee casi todo desde disco: son corridas en frío aunque se repitan. Las corridas con índice tocan pocas claves y documentos; la primera de cada consulta puede ir en frío y las siguientes en caliente, por eso se reportan mínimo, mediana y máximo.`,
-    `- Durante la medición estaban en marcha: ${meta.procesosEnMarcha}.`,
     '',
   ].join('\n');
 };
@@ -276,7 +287,6 @@ try {
     corridasIndice: RUNS,
     corridasCollscan: RUNS_COLLSCAN,
     maxTimeMS: MAX_TIME_MS,
-    procesosEnMarcha: process.env.BENCH_PROCESOS || 'no anotado',
     indices,
   };
 

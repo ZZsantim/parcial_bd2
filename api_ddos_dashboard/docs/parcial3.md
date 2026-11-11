@@ -75,8 +75,8 @@ Los agregados de informes se ejecutan en MongoDB. El backend no descarga la cole
 ## Índices y optimización
 
 `flujos_limpia` tiene cinco índices (`idxtimestamp`, `idx_label`, `idx_source_ip`, `idx_protocol` e `idx_label_timestamp`), creados con `npm run db:indexes`.
-Medidos con `explain("executionStats")` frente a un COLLSCAN forzado, las cuatro consultas selectivas pasan de examinar 70 427 637 documentos a examinar solo los que devuelven.
-La mejora va de 131× (`Protocol: 0`) a 24 853× (una IP de origen); tabla completa y justificación en [optimizacion-indices.md](optimizacion-indices.md).
+Medidas con `explain("executionStats")` frente a un COLLSCAN forzado, las tres consultas del benchmark (IP de origen, `Label` + rango de `Timestamp` y rango de `Timestamp`) pasan de examinar 70 427 637 documentos a examinar solo los que devuelven.
+La mediana baja de entre 133 288 y 210 057 ms con COLLSCAN a entre 0 y 1 ms con índice; tabla completa y justificación en [optimizacion-indices.md](optimizacion-indices.md).
 
 ## Arquitectura
 
