@@ -43,6 +43,8 @@ En las colecciones resumen las cifras ya están sumadas: flujos = número de flu
 Regla para elegir la colección:
 - Preguntas agregadas sobre todo el dataset (rankings, totales, distribuciones por Label, IP, protocolo, puerto, hora o día) van a la colección resumen_* correspondiente.
 - Preguntas selectivas (una IP concreta, una etiqueta concreta, un rango de fechas) van a ${flowsCollectionName}, con un $match como primera etapa sobre campos indexados: Label, Source IP, Protocol o Timestamp.
+- Si la pregunta necesita fechas, horas o rangos de tiempo de una etiqueta, una IP o un flujo concreto (primera, última, más antigua o más reciente fecha), usa ${flowsCollectionName} con un $match inicial por campo indexado; para "el más antiguo" o "el más reciente" ordena con $sort por Timestamp (1 o -1), agrega $limit 1 y proyecta Label y Timestamp. Las colecciones resumen_* no tienen fecha por etiqueta ni por IP (solo resumen_diario y resumen_hora tienen fecha u hora). Ejemplo: {"coleccion":"${flowsCollectionName}","pipeline":[{"$match":{"Label":"DrDoS_DNS"}},{"$sort":{"Timestamp":1}},{"$limit":1},{"$project":{"_id":0,"Label":1,"Timestamp":1}}],"explanation":"..."}
+- Si con la colección elegida no se puede responder la pregunta, devuelve pipeline [] con la explicación, nunca un pipeline que no la responda.
 Si preguntan por ataques, tráfico malicioso o tipos DDoS, excluye BENIGN (siempre escrito exactamente como BENIGN). Si comparan explícitamente benigno contra ataque, conserva ambas clases.
 Si preguntan por los N primeros o más frecuentes, agrega $limit con N después de ordenar.
 Solo puedes usar etapas $match, $group, $project, $sort, $limit y $count.
