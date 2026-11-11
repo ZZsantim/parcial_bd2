@@ -1,262 +1,48 @@
-import { getFlowsCollection } from '../config/db.js';
+import { getDB, getFlowsCollection } from '../config/db.js';
 import { serializeFlujo } from '../models/informe.js';
+import {
+  COLECCIONES,
+  pipelineLecturaAnalitica,
+  pipelineLecturaResumen,
+  pipelineLecturaSeries,
+  pipelineLecturaTopIps,
+} from './resumenPipelines.js';
 
-const SAMPLE_SIZE = 10_000;
-// flujos_limpia normaliza todas las variantes de benigno a exactamente "BENIGN"
-const benignLabels = ['BENIGN'];
+// Los informes 1 a 8 se calculan sobre el dataset completo: se leen de las colecciones
+// resumen que genera `npm run db:resumenes` (agregaciones con $merge sobre flujos_limpia).
+// Cada lectura es una sola agregación sobre resumen_general con $lookup a los demás resúmenes.
 
-const isAttack = {
-  $not: [{ $in: ['$Label', benignLabels] }],
-};
+const LECTURA_MAX_TIME_MS = 5_000;
 
-const recentSampleStages = [
-  { $sort: { Timestamp: -1 } },
-  { $limit: SAMPLE_SIZE },
-];
+export class ResumenesNoDisponiblesError extends Error {
+  constructor() {
+    super('Las colecciones resumen no existen todavía. Ejecuta "npm run db:resumenes".');
+    this.code = 'RESUMENES_NO_DISPONIBLES';
+  }
+}
 
-const seriesStages = (days) => [
-  { $match: { Timestamp: { $type: 'string' } } },
-  {
-    $group: {
-      _id: { $substrBytes: ['$Timestamp', 0, 10] },
-      total: { $sum: 1 },
-      ataques: { $sum: { $cond: [isAttack, 1, 0] } },
-    },
-  },
-  { $sort: { _id: -1 } },
-  { $limit: days },
-  { $sort: { _id: 1 } },
-  { $project: { _id: 0, fecha: '$_id', total: 1, ataques: 1 } },
-];
-
-export const getResumen = async () => {
-  const collection = getFlowsCollection();
-  const [totalFlujosEstimado, [result = null] = []] = await Promise.all([
-    collection.estimatedDocumentCount(),
-    collection
-      .aggregate(
-        [
-          ...recentSampleStages,
-          {
-            $facet: {
-              metricas: [
-                {
-                  $group: {
-                    _id: null,
-                    flujosAnalizados: { $sum: 1 },
-                    flujosDeAtaque: { $sum: { $cond: [isAttack, 1, 0] } },
-                    bytesPorSegundoPromedio: {
-                      $avg: {
-                        $let: {
-                          vars: {
-                            tasa: {
-                              $convert: {
-                                input: '$Flow Bytes/s',
-                                to: 'double',
-                                onError: null,
-                                onNull: null,
-                              },
-                            },
-                          },
-                          in: {
-                            $cond: [
-                              {
-                                $and: [
-                                  { $gte: ['$$tasa', 0] },
-                                  { $lte: ['$$tasa', 1e308] },
-                                ],
-                              },
-                              '$$tasa',
-                              null,
-                            ],
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-                {
-                  $project: {
-                    _id: 0,
-                    flujosAnalizados: 1,
-                    flujosDeAtaque: 1,
-                    porcentajeDeAtaque: {
-                      $multiply: [
-                        { $divide: ['$flujosDeAtaque', '$flujosAnalizados'] },
-                        100,
-                      ],
-                    },
-                    bytesPorSegundoPromedio: { $ifNull: ['$bytesPorSegundoPromedio', 0] },
-                  },
-                },
-              ],
-              tipoAtaqueMasFrecuente: [
-                { $match: { Label: { $exists: true, $nin: benignLabels } } },
-                { $group: { _id: '$Label', cantidad: { $sum: 1 } } },
-                { $sort: { cantidad: -1, _id: 1 } },
-                { $limit: 1 },
-                { $project: { _id: 0, tipo: '$_id', cantidad: 1 } },
-              ],
-            },
-          },
-        ],
-        { maxTimeMS: 15_000 },
-      )
-      .toArray(),
-  ]);
-
-  const metricas = result?.metricas[0] ?? {
-    flujosAnalizados: 0,
-    flujosDeAtaque: 0,
-    porcentajeDeAtaque: 0,
-    bytesPorSegundoPromedio: 0,
-  };
-
-  return {
-    totalFlujosEstimado,
-    ...metricas,
-    tipoAtaqueMasFrecuente: result?.tipoAtaqueMasFrecuente[0]?.tipo ?? null,
-  };
-};
-
-export const getTopIps = async (limit = 5) => {
-  const [result = {}] = await getFlowsCollection()
-    .aggregate(
-      [
-        ...recentSampleStages,
-        {
-          $facet: {
-            datos: [
-              { $match: { Label: { $exists: true, $nin: benignLabels }, 'Source IP': { $exists: true, $ne: null } } },
-              {
-                $group: {
-                  _id: '$Source IP',
-                  ataques: { $sum: 1 },
-                  etiquetas: { $addToSet: '$Label' },
-                },
-              },
-              { $sort: { ataques: -1, _id: 1 } },
-              { $limit: limit },
-              { $project: { _id: 0, ip: '$_id', ataques: 1, etiquetas: 1 } },
-            ],
-            metadata: [{ $count: 'flujosAnalizados' }],
-          },
-        },
-      ],
-      { maxTimeMS: 15_000 },
-    )
+const leerResumen = async (pipeline, db = getDB()) => {
+  const [resultado] = await db
+    .collection(COLECCIONES.general)
+    .aggregate(pipeline, { maxTimeMS: LECTURA_MAX_TIME_MS })
     .toArray();
-
-  return {
-    flujosAnalizados: result.metadata[0]?.flujosAnalizados ?? 0,
-    datos: result.datos ?? [],
-  };
+  if (!resultado) throw new ResumenesNoDisponiblesError();
+  return resultado;
 };
 
-export const getSeries = async (days = 7) => {
-  const [result = {}] = await getFlowsCollection()
-    .aggregate(
-      [
-        ...recentSampleStages,
-        {
-          $facet: {
-            datos: seriesStages(days),
-            metadata: [{ $count: 'flujosAnalizados' }],
-          },
-        },
-      ],
-      { maxTimeMS: 15_000 },
-    )
-    .toArray();
+// Informe 1: indicadores generales.
+export const getResumen = async (db) => leerResumen(pipelineLecturaResumen(), db);
 
-  return {
-    flujosAnalizados: result.metadata[0]?.flujosAnalizados ?? 0,
-    datos: result.datos ?? [],
-  };
-};
+// Informe 3: IPs de origen con más flujos de ataque.
+export const getTopIps = async (limit = 5, db = undefined) => leerResumen(pipelineLecturaTopIps(limit), db);
 
-export const getAnalitica = async (days = 7, limit = 8) => {
-  const [result = {}] = await getFlowsCollection()
-    .aggregate(
-      [
-        ...recentSampleStages,
-        {
-          $facet: {
-            metadata: [{ $count: 'flujosAnalizados' }],
-            series: seriesStages(days),
-            tiposAtaque: [
-              { $match: { Label: { $exists: true, $nin: benignLabels } } },
-              { $group: { _id: '$Label', cantidad: { $sum: 1 } } },
-              { $sort: { cantidad: -1, _id: 1 } },
-              { $limit: limit },
-              { $project: { _id: 0, tipo: '$_id', cantidad: 1 } },
-            ],
-            ipsDestino: [
-              {
-                $match: {
-                  Label: { $exists: true, $nin: benignLabels },
-                  'Destination IP': { $exists: true, $ne: null },
-                },
-              },
-              { $group: { _id: '$Destination IP', ataques: { $sum: 1 } } },
-              { $sort: { ataques: -1, _id: 1 } },
-              { $limit: limit },
-              { $project: { _id: 0, ip: '$_id', ataques: 1 } },
-            ],
-            protocolos: [
-              { $match: { Protocol: { $exists: true, $ne: null } } },
-              {
-                $group: {
-                  _id: '$Protocol',
-                  flujos: { $sum: 1 },
-                  ataques: { $sum: { $cond: [isAttack, 1, 0] } },
-                },
-              },
-              { $sort: { flujos: -1, _id: 1 } },
-              { $limit: limit },
-              { $project: { _id: 0, protocolo: '$_id', flujos: 1, ataques: 1 } },
-            ],
-            puertosDestino: [
-              {
-                $match: {
-                  Label: { $exists: true, $nin: benignLabels },
-                  'Destination Port': { $exists: true, $ne: null },
-                },
-              },
-              { $group: { _id: '$Destination Port', ataques: { $sum: 1 } } },
-              { $sort: { ataques: -1, _id: 1 } },
-              { $limit: limit },
-              { $project: { _id: 0, puerto: '$_id', ataques: 1 } },
-            ],
-            horas: [
-              { $match: { Timestamp: { $type: 'string' } } },
-              {
-                $group: {
-                  _id: { $substrBytes: ['$Timestamp', 11, 2] },
-                  flujos: { $sum: 1 },
-                  ataques: { $sum: { $cond: [isAttack, 1, 0] } },
-                },
-              },
-              { $sort: { _id: 1 } },
-              { $project: { _id: 0, hora: '$_id', flujos: 1, ataques: 1 } },
-            ],
-          },
-        },
-      ],
-      { maxTimeMS: 15_000, allowDiskUse: false },
-    )
-    .toArray();
+// Informe 2: flujos y ataques por día.
+export const getSeries = async (days = 7, db = undefined) => leerResumen(pipelineLecturaSeries(days), db);
 
-  return {
-    flujosAnalizados: result.metadata?.[0]?.flujosAnalizados ?? 0,
-    series: result.series ?? [],
-    tiposAtaque: result.tiposAtaque ?? [],
-    ipsDestino: result.ipsDestino ?? [],
-    protocolos: result.protocolos ?? [],
-    puertosDestino: result.puertosDestino ?? [],
-    horas: result.horas ?? [],
-  };
-};
+// Informes 2 y 4 a 8: serie diaria, tipos de ataque, destinos, protocolos, puertos y horas.
+export const getAnalitica = async (days = 7, limit = 8, db = undefined) => (
+  leerResumen(pipelineLecturaAnalitica(days, limit), db)
+);
 
 export const getInformes = async (limit = 20) => {
   const collection = getFlowsCollection();
