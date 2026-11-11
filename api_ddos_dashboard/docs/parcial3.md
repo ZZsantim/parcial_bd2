@@ -209,12 +209,11 @@ npm start
 
 Configurar `backend/.env` con `MONGO_URI`, `DB_NAME=ddos_db`, `DB_COLLECTION=flujos_limpia`, `PORT` y la configuración local de Ollama. Abrir `http://localhost:3000` (o el puerto configurado). MongoDB local usa `127.0.0.1:27017` y el replica set `rs0`.
 
-En esta máquina está instalado `qwen2.5:3b`. Para iniciar el dashboard con ese modelo sin editar `.env`, usar `OLLAMA_MODEL=qwen2.5:3b npm start`; instalar `kimi-k2.5` o acordar el cambio del modelo predeterminado sigue pendiente.
+El modelo por defecto es `qwen3.5:9b`, el modelo de chat instalado en el Ollama local (`kimi-k2.5` no está instalado). `backend/.env.example` lo deja configurado; la evidencia de las preguntas está en `docs/evidencia-lenguaje-natural.md`.
 
 ## Pendientes externos a la implementación
 
 - Confirmar con el docente que el umbral de 20 GiB se valida mediante `dataSize` (la métrica recomendada en el PDF); `storageSize` observado es 17.90 GiB.
-- El modelo configurado por defecto es `kimi-k2.5`, que no está instalado en esta instancia de Ollama. La integración se probó con `qwen2.5:3b` mediante `OLLAMA_MODEL=qwen2.5:3b`; para que la configuración normal permita la sustentación, instalar Kimi o acordar el cambio del modelo predeterminado.
 - Registrar los nombres de los integrantes y el enlace del repositorio GitHub en la entrega; esa información no está en el código local.
 - Tomar capturas/salida de terminal de las métricas de almacenamiento, `npm run db:explain`, tres preguntas naturales y una inserción/actualización/eliminación real durante la sustentación. Los datos de `db.stats` y `executionStats` cambian según el estado del servicio.
 - Todos los integrantes deben preparar la explicación individual del caso, las agregaciones, los índices y la arquitectura, como exige la sustentación.

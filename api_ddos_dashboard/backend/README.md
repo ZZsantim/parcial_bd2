@@ -2,7 +2,7 @@
 
 La API consulta la colección de MongoDB indicada por `DB_COLLECTION` (por defecto, `flujos_limpia`) dentro de la base indicada por `DB_NAME`. Al iniciar, verifica el ping y que la colección exista; si la configuración es incorrecta, no inicia el servidor.
 
-Configura `PORT`, `MONGO_URI`, `DB_NAME` y `DB_COLLECTION` en `backend/.env`, y ejecuta `npm start` desde `api_ddos_dashboard`. Si `OLLAMA_MODEL` no está instalado, establece uno disponible (por ejemplo, `OLLAMA_MODEL=qwen2.5:3b npm start`).
+Configura `PORT`, `MONGO_URI`, `DB_NAME` y `DB_COLLECTION` en `backend/.env`, y ejecuta `npm start` desde `api_ddos_dashboard`. Parte de `backend/.env.example`. Si `OLLAMA_MODEL` no está instalado, establece uno disponible (`ollama list`).
 
 ## Rutas
 
@@ -33,7 +33,7 @@ Actualización con el Change Stream: cada inserción se suma por lotes (un segun
 
 Esta estructura aplica la arquitectura por capas solicitada: rutas → controladores → servicios → repositorios, con configuración de conexión y serialización del modelo separadas. Los parámetros `limit` y `days` se validan antes de consultar la base; los errores y rutas no encontradas responden JSON sin filtrar detalles internos.
 
-El frontend servido por Express mantiene un flujo conversacional inspirado en el proyecto de referencia, pero no usa Firebase: consultas y actualizaciones se conectan a esta API y a MongoDB. Ollama recibe solamente la pregunta y el esquema de campos, nunca documentos del dataset. El modelo por defecto es `kimi-k2.5`; configura `OLLAMA_URL`, `OLLAMA_MODEL` y `OLLAMA_TIMEOUT_MS` en `backend/.env`. Ollama debe estar activo y el modelo instalado (`ollama pull kimi-k2.5`). La generación se restringe a etapas y campos permitidos, una muestra máxima de 10 000 flujos, 100 resultados y tiempo máximo de ejecución MongoDB.
+El frontend servido por Express mantiene un flujo conversacional inspirado en el proyecto de referencia, pero no usa Firebase: consultas y actualizaciones se conectan a esta API y a MongoDB. Ollama recibe solamente la pregunta y el esquema de campos, nunca documentos del dataset. El modelo por defecto es `qwen3.5:9b`; configura `OLLAMA_URL`, `OLLAMA_MODEL` y `OLLAMA_TIMEOUT_MS` en `backend/.env`. Ollama debe estar activo y el modelo instalado (`ollama pull qwen3.5:9b`). El esquema enviado a Ollama sale de `backend/repositories/esquemaFlujos.js`, con los 88 campos reales de `flujos_limpia`. La generación se restringe a etapas y campos permitidos, una muestra máxima de 10 000 flujos, 100 resultados y tiempo máximo de ejecución MongoDB.
 
 El endpoint de eventos usa MongoDB Change Streams y requiere un replica set o clúster compatible. El servidor mantiene una suscripción para distribuir eventos a los clientes conectados; si se interrumpe, intenta reconectarla con espera incremental.
 
