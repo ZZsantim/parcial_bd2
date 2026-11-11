@@ -3,32 +3,25 @@ import assert from 'node:assert/strict';
 import { prepararPipelineParaPregunta } from '../services/consultaService.js';
 
 test('preserves benign and attack groups when the user asks for both counts', () => {
-  const pipeline = prepararPipelineParaPregunta(
+  const resultado = prepararPipelineParaPregunta(
     '¿Cuántos flujos son benignos y cuántos son ataques?',
+    'flujos_limpia',
     [{ $match: { Label: { $ne: 'BENIGN' } } }, { $group: { _id: '$Label', cantidad: { $sum: 1 } } }],
   );
 
-  assert.deepEqual(pipeline, [
-    { $sort: { Label: 1 } },
-    {
-      $group: {
-        _id: {
-          $cond: [
-            { $eq: ['$Label', 'BENIGN'] },
-            'BENIGN',
-            'Ataque',
-          ],
-        },
-        flujos: { $sum: 1 },
-      },
-    },
-    { $sort: { _id: 1 } },
-  ]);
+  assert.deepEqual(resultado, {
+    coleccion: 'resumen_label',
+    pipeline: [
+      { $group: { _id: { $cond: ['$esAtaque', 'Ataque', 'BENIGN'] }, flujos: { $sum: '$flujos' } } },
+      { $sort: { _id: 1 } },
+    ],
+  });
 });
 
 test('excludes benign flows from attack-only questions', () => {
-  const pipeline = prepararPipelineParaPregunta(
+  const { pipeline } = prepararPipelineParaPregunta(
     '¿Qué ataques aparecen?',
+    'flujos_limpia',
     [{ $group: { _id: '$Label', cantidad: { $sum: 1 } } }],
   );
 

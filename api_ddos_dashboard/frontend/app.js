@@ -345,7 +345,7 @@ const askQuestion = async (question) => {
       const pipelineDetails = document.createElement('details');
       pipelineDetails.className = 'answer-results';
       const pipelineSummary = document.createElement('summary');
-      pipelineSummary.textContent = `Pipeline de solo lectura ejecutado en MongoDB · ${result.pipeline.length} etapa(s)`;
+      pipelineSummary.textContent = `Pipeline de solo lectura ejecutado en ${result.coleccion} · ${result.pipeline.length} etapa(s)`;
       const pipelineOutput = document.createElement('pre');
       pipelineOutput.textContent = JSON.stringify(result.pipeline, null, 2);
       pipelineDetails.append(pipelineSummary, pipelineOutput);
@@ -356,7 +356,7 @@ const askQuestion = async (question) => {
       const details = document.createElement('details');
       details.className = 'answer-results';
       const summary = document.createElement('summary');
-      summary.textContent = `${result.totalResultados} resultado(s) · ${result.alcance} · ${numberFormat.format(result.tiempoMs)} ms`;
+      summary.textContent = `${result.totalResultados} resultado(s) · ${result.coleccion} · ${numberFormat.format(result.tiempoMs)} ms`;
       const output = document.createElement('pre');
       output.textContent = JSON.stringify(result.resultados, null, 2);
       details.append(summary, output);

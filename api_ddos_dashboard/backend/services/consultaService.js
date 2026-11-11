@@ -1,8 +1,11 @@
 import {
+  CAMPOS_POR_COLECCION,
   ejecutarConsultaGenerada,
   validarPipeline,
 } from '../repositories/llmRepository.js';
 import { describirEsquemaFlujos } from '../repositories/esquemaFlujos.js';
+import { COLECCIONES } from '../repositories/resumenPipelines.js';
+import { flowsCollectionName } from '../config/db.js';
 
 const ollamaUrl = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 // qwen3.5:9b es el mejor modelo de chat instalado en el Ollama local (kimi-k2.5 no está).
@@ -11,17 +14,39 @@ const ollamaTimeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 120_000);
 
 const fieldDescription = describirEsquemaFlujos();
 
-export const systemPrompt = `Eres un asistente de analítica para flujos de red CIC-DDoS2019.
-Convierte la pregunta en una consulta MongoDB de solo lectura y responde ÚNICAMENTE un objeto JSON válido con esta forma:
-{"pipeline":[{"$match":{...}},{"$group":{"_id":"$Label","cantidad":{"$sum":1}}},{"$sort":{"cantidad":-1}}],"explanation":"Explicación breve en español"}
+// Qué es el _id de cada colección resumen (según su $group en DERIVACIONES).
+const significadoId = {
+  [COLECCIONES.general]: '"general" (un único documento con los totales del dataset)',
+  [COLECCIONES.label]: 'el Label (BENIGN o el tipo de ataque)',
+  [COLECCIONES.diario]: 'la fecha "YYYY-MM-DD" (texto)',
+  [COLECCIONES.hora]: 'la hora del día "HH" (texto de dos dígitos)',
+  [COLECCIONES.protocolo]: 'el Protocol (número: 6 = TCP, 17 = UDP, 0 = otro)',
+  [COLECCIONES.ipsOrigen]: 'la Source IP (solo cuenta flujos de ataque)',
+  [COLECCIONES.ipsDestino]: 'la Destination IP (solo cuenta flujos de ataque)',
+  [COLECCIONES.puerto]: 'el Destination Port, número (solo cuenta flujos de ataque)',
+};
 
-La consulta se ejecutará sobre la colección completa (unos 70 millones de flujos).
-Cuando la pregunta filtre por Label, Source IP, Protocol o Timestamp, pon ese $match como primera etapa: esos campos tienen índice.
-Si agrupas por Label, Source IP o Protocol sin filtrar, empieza con {"$sort":{"<ese campo>":1}}: así MongoDB recorre solo el índice.
-Si preguntan por ataques, tráfico malicioso o tipos DDoS, excluye Label BENIGN (siempre escrito exactamente como BENIGN). Si comparan explícitamente benigno contra ataque, conserva ambas clases.
+const resumenDescription = [...CAMPOS_POR_COLECCION]
+  .filter(([coleccion]) => coleccion !== flowsCollectionName)
+  .map(([coleccion, campos]) => `- ${coleccion}: _id = ${significadoId[coleccion]}; campos: ${campos.join(', ')}`)
+  .join('\n');
+
+export const systemPrompt = `Eres un asistente de analítica para flujos de red CIC-DDoS2019.
+Elige UNA colección autorizada, convierte la pregunta en una consulta MongoDB de solo lectura sobre ella y responde ÚNICAMENTE un objeto JSON válido con esta forma:
+{"coleccion":"resumen_label","pipeline":[{"$match":{"_id":{"$ne":"BENIGN"}}},{"$sort":{"flujos":-1}}],"explanation":"Explicación breve en español"}
+
+Colecciones autorizadas (no uses ninguna otra):
+- ${flowsCollectionName}: un documento por flujo (unos 70 millones). Sus campos se listan más abajo.
+${resumenDescription}
+En las colecciones resumen las cifras ya están sumadas: flujos = número de flujos, ataques y flujosDeAtaque = flujos cuyo Label no es BENIGN, total = flujos del día, esAtaque = true si el Label no es BENIGN, etiquetas = lista de Label de ataque de esa IP, bpsSuma y bpsN = suma y cantidad de valores válidos de Flow Bytes/s (promedio = bpsSuma / bpsN). Cada documento de una colección resumen ya es un grupo (uno por _id): para una distribución o un ranking por esa clave no uses $group, solo $sort (y $limit si piden los N primeros). Usa $group solo para juntar varios documentos en un total, sumando esos campos; nunca cuentes documentos con {"$sum":1}.
+
+Regla para elegir la colección:
+- Preguntas agregadas sobre todo el dataset (rankings, totales, distribuciones por Label, IP, protocolo, puerto, hora o día) van a la colección resumen_* correspondiente.
+- Preguntas selectivas (una IP concreta, una etiqueta concreta, un rango de fechas) van a ${flowsCollectionName}, con un $match como primera etapa sobre campos indexados: Label, Source IP, Protocol o Timestamp.
+Si preguntan por ataques, tráfico malicioso o tipos DDoS, excluye BENIGN (siempre escrito exactamente como BENIGN). Si comparan explícitamente benigno contra ataque, conserva ambas clases.
 Si preguntan por los N primeros o más frecuentes, agrega $limit con N después de ordenar.
 Solo puedes usar etapas $match, $group, $project, $sort, $limit y $count.
-Solo puedes usar estos campos; escribe cada nombre exactamente igual (con sus espacios, mayúsculas y sufijos como "Fwd Header Length_1"):
+En ${flowsCollectionName} solo puedes usar estos campos; escribe cada nombre exactamente igual (con sus espacios, mayúsculas y sufijos como "Fwd Header Length_1"):
 - ${fieldDescription}
 Los operadores de filtro permitidos son $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin y $exists; $and/$or se permiten para combinar filtros.
 Timestamp es texto: filtra por fecha con comparaciones de texto ("2018-12-01 00:00:00") y agrupa por hora con {"$substrBytes":["$Timestamp",11,2]}.
@@ -34,13 +59,16 @@ const normalizeQuestion = (question) => question
   .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase();
 
-const excludeBenignForAttackQuestion = (question, pipeline) => {
+// Campo que guarda el Label en cada colección (las demás ya distinguen ataques).
+const campoLabel = { [flowsCollectionName]: 'Label', [COLECCIONES.label]: '_id' };
+
+const excludeBenignForAttackQuestion = (question, coleccion, pipeline) => {
   const normalized = normalizeQuestion(question);
   const asksAboutAttacks = /\bataques?\b|\bddos\b|\bmalicios[oa]s?\b/.test(normalized);
   const comparesWithBenign = /\bbenign[oa]s?\b|\bcompar(ar|acion|a)\b|\bfrente a\b|\bcontra\b/.test(normalized);
-  if (!asksAboutAttacks || comparesWithBenign) return pipeline;
+  if (!asksAboutAttacks || comparesWithBenign || !campoLabel[coleccion]) return pipeline;
 
-  const attackFilter = { Label: { $ne: 'BENIGN' } };
+  const attackFilter = { [campoLabel[coleccion]]: { $ne: 'BENIGN' } };
   if (pipeline[0]?.$match) {
     pipeline[0] = { $match: { $and: [attackFilter, pipeline[0].$match] } };
   } else {
@@ -56,28 +84,18 @@ const asksForBenignAttackCounts = (question) => {
   return asksForCounts && asksAboutBenignAndAttacks;
 };
 
-export const prepararPipelineParaPregunta = (question, pipeline) => {
+export const prepararPipelineParaPregunta = (question, coleccion, pipeline) => {
   if (asksForBenignAttackCounts(question)) {
-    // El $sort por Label hace que MongoDB recorra solo idx_label (sin leer los documentos).
-    return [
-      { $sort: { Label: 1 } },
-      {
-        $group: {
-          _id: {
-            $cond: [
-              { $eq: ['$Label', 'BENIGN'] },
-              'BENIGN',
-              'Ataque',
-            ],
-          },
-          flujos: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ];
+    return {
+      coleccion: COLECCIONES.label,
+      pipeline: [
+        { $group: { _id: { $cond: ['$esAtaque', 'Ataque', 'BENIGN'] }, flujos: { $sum: '$flujos' } } },
+        { $sort: { _id: 1 } },
+      ],
+    };
   }
 
-  return excludeBenignForAttackQuestion(question, pipeline);
+  return { coleccion, pipeline: excludeBenignForAttackQuestion(question, coleccion, pipeline) };
 };
 
 const parseModelResponse = (content) => {
@@ -168,26 +186,26 @@ export const consultarEnLenguajeNatural = async (question) => {
       pipeline: [],
       totalResultados: 0,
       resultados: [],
-      alcance: 'colección completa',
+      coleccion: null,
       tiempoMs: 0,
     };
   }
 
-  const pipeline = prepararPipelineParaPregunta(question, generated.pipeline);
-  validarPipeline(pipeline);
+  const { coleccion, pipeline } = prepararPipelineParaPregunta(question, generated.coleccion, generated.pipeline);
+  validarPipeline(pipeline, coleccion);
   const inicio = Date.now();
-  const results = await ejecutarConsultaGenerada(pipeline).catch((error) => {
+  const results = await ejecutarConsultaGenerada(pipeline, coleccion).catch((error) => {
     throw Object.assign(error, { pipeline });
   });
   const tiempoMs = Date.now() - inicio;
   return {
     explanation: asksForBenignAttackCounts(question)
-      ? 'Compara el conteo de flujos benignos y ataques en la colección completa.'
+      ? 'Suma los flujos benignos y los de ataque de resumen_label.'
       : generated.explanation,
+    coleccion,
     pipeline,
     totalResultados: results.length,
     resultados: results,
-    alcance: 'colección completa',
     tiempoMs,
   };
 };

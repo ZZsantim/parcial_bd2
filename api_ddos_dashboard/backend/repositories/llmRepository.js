@@ -1,12 +1,23 @@
-import { getFlowsCollection } from '../config/db.js';
+import { flowsCollectionName, getDB } from '../config/db.js';
 import { NOMBRES_CAMPOS_FLUJO } from './esquemaFlujos.js';
+import { DERIVACIONES } from './resumenPipelines.js';
 
 const RESULT_LIMIT = 100;
-// Tope de ejecución de la consulta generada sobre la colección completa.
+// Tope de ejecución de la consulta generada.
 const QUERY_MAX_TIME_MS = Number(process.env.CONSULTA_MAX_TIME_MS || 120_000);
 const MAX_STAGES = 8;
 
 const sourceFields = new Set(NOMBRES_CAMPOS_FLUJO);
+
+// Colecciones donde se puede ejecutar la consulta generada, con sus campos. Los de cada
+// resumen_* son las claves de su $group y $set en DERIVACIONES (no incluye resumen_base ni resumen_estado).
+export const CAMPOS_POR_COLECCION = new Map([
+  [flowsCollectionName, NOMBRES_CAMPOS_FLUJO],
+  ...DERIVACIONES.map(({ destino, etapas }) => [
+    destino,
+    [...new Set(etapas.flatMap((etapa) => Object.keys(etapa.$group ?? etapa.$set ?? {})))],
+  ]),
+]);
 
 const allowedStages = new Set([
   '$match',
@@ -129,13 +140,20 @@ const validateMatch = (match, allowedFields, depth = 0) => {
   }
 };
 
-export const validarPipeline = (pipeline) => {
+export const validarPipeline = (pipeline, coleccion = flowsCollectionName) => {
+  const campos = CAMPOS_POR_COLECCION.get(coleccion);
+  if (!campos) {
+    throw Object.assign(
+      new Error(`Colección no autorizada: ${coleccion}. Solo se permite ${[...CAMPOS_POR_COLECCION.keys()].join(', ')}.`),
+      { statusCode: 400 },
+    );
+  }
   try {
     if (!Array.isArray(pipeline) || pipeline.length < 1 || pipeline.length > MAX_STAGES) {
       throw new Error(`La consulta debe tener entre 1 y ${MAX_STAGES} etapas.`);
     }
 
-    const allowedFields = new Set(sourceFields);
+    const allowedFields = new Set(campos);
     for (const stage of pipeline) {
       if (!stage || typeof stage !== 'object' || Array.isArray(stage)) {
         throw new Error('Cada etapa de la consulta debe ser un objeto.');
@@ -213,10 +231,10 @@ export const validarPipeline = (pipeline) => {
   }
 };
 
-export const ejecutarConsultaGenerada = async (pipeline) => {
-  const validatedPipeline = validarPipeline(pipeline);
+export const ejecutarConsultaGenerada = async (pipeline, coleccion) => {
+  const validatedPipeline = validarPipeline(pipeline, coleccion);
   try {
-    return await getFlowsCollection()
+    return await getDB().collection(coleccion)
       .aggregate(
         [...validatedPipeline, { $limit: RESULT_LIMIT }],
         { maxTimeMS: QUERY_MAX_TIME_MS, allowDiskUse: true },
@@ -225,7 +243,7 @@ export const ejecutarConsultaGenerada = async (pipeline) => {
   } catch (error) {
     if (error.code === 50 || error.codeName === 'MaxTimeMSExpired') {
       throw Object.assign(
-        new Error(`La consulta superó el tiempo máximo de ${QUERY_MAX_TIME_MS} ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.`),
+        new Error(`La consulta superó el tiempo máximo de ${QUERY_MAX_TIME_MS} ms en ${coleccion}. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.`),
         { statusCode: 504 },
       );
     }

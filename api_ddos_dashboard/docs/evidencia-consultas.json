@@ -1,6 +1,6 @@
 {
-  "fecha": "2026-11-11T17:50:37.133Z",
-  "api": "http://127.0.0.1:3000",
+  "fecha": "2026-11-11T19:22:20.964Z",
+  "api": "http://127.0.0.1:3001",
   "salud": {
     "status": "ok",
     "database": "connected",
@@ -10,27 +10,28 @@
       "model": "qwen3.5:9b"
     },
     "service": "api-ddos-dashboard",
-    "timestamp": "2026-11-11T17:50:36.954Z"
+    "timestamp": "2026-11-11T19:22:20.875Z"
   },
   "consultas": [
     {
       "id": "a",
       "pregunta": "¿Cuáles son los tipos de ataque más frecuentes?",
       "http": 200,
-      "ms": 139882,
+      "ms": 3767,
       "respuesta": {
-        "explanation": "Se agrupan todos los flujos que no son BENIGN (es decir, todos los tipos de ataque) y se cuentan. Luego se ordenan de mayor a menor frecuencia para mostrar los más comunes.",
+        "explanation": "Se utiliza la colección resumen_label para obtener directamente el conteo de flujos por tipo de ataque, excluyendo BENIGN y ordenando de mayor a menor frecuencia.",
+        "coleccion": "resumen_label",
         "pipeline": [
           {
             "$match": {
               "$and": [
                 {
-                  "Label": {
+                  "_id": {
                     "$ne": "BENIGN"
                   }
                 },
                 {
-                  "Label": {
+                  "_id": {
                     "$ne": "BENIGN"
                   }
                 }
@@ -38,16 +39,8 @@
             }
           },
           {
-            "$group": {
-              "_id": "$Label",
-              "cantidad": {
-                "$sum": 1
-              }
-            }
-          },
-          {
             "$sort": {
-              "cantidad": -1
+              "flujos": -1
             }
           }
         ],
@@ -55,110 +48,154 @@
         "resultados": [
           {
             "_id": "TFTP",
-            "cantidad": 20082580
+            "flujos": 20082580,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:59:37.386Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "Syn",
-            "cantidad": 6473789
+            "flujos": 6473789,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "MSSQL",
-            "cantidad": 5787453
+            "flujos": 5787453,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "DrDoS_SNMP",
-            "cantidad": 5159870
+            "flujos": 5159870,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "DrDoS_DNS",
-            "cantidad": 5071011
+            "flujos": 5071011,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "DrDoS_MSSQL",
-            "cantidad": 4522492
+            "flujos": 4522492,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "DrDoS_NetBIOS",
-            "cantidad": 4093279
+            "flujos": 4093279,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "UDP",
-            "cantidad": 3867155
+            "flujos": 3867155,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "NetBIOS",
-            "cantidad": 3657497
+            "flujos": 3657497,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "DrDoS_UDP",
-            "cantidad": 3134645
+            "flujos": 3134645,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "DrDoS_SSDP",
-            "cantidad": 2610611
+            "flujos": 2610611,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "DrDoS_LDAP",
-            "cantidad": 2179930
+            "flujos": 2179930,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "LDAP",
-            "cantidad": 1915122
+            "flujos": 1915122,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "DrDoS_NTP",
-            "cantidad": 1202642
+            "flujos": 1202642,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "UDP-lag",
-            "cantidad": 366461
+            "flujos": 366461,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "Portmap",
-            "cantidad": 186960
+            "flujos": 186960,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "UDPLag",
-            "cantidad": 1873
+            "flujos": 1873,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           },
           {
             "_id": "WebDDoS",
-            "cantidad": 439
+            "flujos": 439,
+            "esAtaque": true,
+            "actualizadoEn": "2026-11-11T16:55:08.284Z",
+            "generacion": "6af4978a7688ba40fab05f91"
           }
         ],
-        "alcance": "colección completa",
-        "tiempoMs": 114710
+        "tiempoMs": 42
       }
     },
     {
       "id": "b",
       "pregunta": "¿Cuántos flujos son benignos y cuántos son ataques?",
-      "http": 504,
-      "ms": 123994,
+      "http": 200,
+      "ms": 2114,
       "respuesta": {
-        "message": "La consulta superó el tiempo máximo de 120000 ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.",
+        "explanation": "Suma los flujos benignos y los de ataque de resumen_label.",
+        "coleccion": "resumen_label",
         "pipeline": [
-          {
-            "$sort": {
-              "Label": 1
-            }
-          },
           {
             "$group": {
               "_id": {
                 "$cond": [
-                  {
-                    "$eq": [
-                      "$Label",
-                      "BENIGN"
-                    ]
-                  },
-                  "BENIGN",
-                  "Ataque"
+                  "$esAtaque",
+                  "Ataque",
+                  "BENIGN"
                 ]
               },
               "flujos": {
-                "$sum": 1
+                "$sum": "$flujos"
               }
             }
           },
@@ -167,116 +204,195 @@
               "_id": 1
             }
           }
-        ]
+        ],
+        "totalResultados": 2,
+        "resultados": [
+          {
+            "_id": "Ataque",
+            "flujos": 70313809
+          },
+          {
+            "_id": "BENIGN",
+            "flujos": 113828
+          }
+        ],
+        "tiempoMs": 7
       }
     },
     {
       "id": "c",
       "pregunta": "¿Qué IP de origen tiene más ataques?",
-      "http": 504,
-      "ms": 123854,
+      "http": 200,
+      "ms": 2623,
       "respuesta": {
-        "message": "La consulta superó el tiempo máximo de 120000 ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.",
+        "explanation": "La colección resumen_top_ips_origen ya agrupa los flujos por Source IP contando solo aquellos con Label no BENIGN (ataques). Ordenamos por el campo 'ataques' de mayor a menor y tomamos el primero.",
+        "coleccion": "resumen_top_ips_origen",
         "pipeline": [
           {
-            "$match": {
-              "Label": {
-                "$ne": "BENIGN"
-              }
-            }
-          },
-          {
-            "$group": {
-              "_id": "$Source IP",
-              "cantidad": {
-                "$sum": 1
-              }
-            }
-          },
-          {
             "$sort": {
-              "cantidad": -1
+              "ataques": -1
             }
           },
           {
             "$limit": 1
           }
-        ]
+        ],
+        "totalResultados": 1,
+        "resultados": [
+          {
+            "_id": "172.16.0.5",
+            "ataques": 70289460,
+            "etiquetas": [
+              "DrDoS_DNS",
+              "DrDoS_LDAP",
+              "DrDoS_MSSQL",
+              "DrDoS_NTP",
+              "DrDoS_NetBIOS",
+              "DrDoS_SNMP",
+              "DrDoS_SSDP",
+              "DrDoS_UDP",
+              "LDAP",
+              "MSSQL",
+              "NetBIOS",
+              "Portmap",
+              "Syn",
+              "TFTP",
+              "UDP",
+              "UDP-lag",
+              "UDPLag",
+              "WebDDoS"
+            ],
+            "actualizadoEn": "2026-11-11T16:59:37.421Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          }
+        ],
+        "tiempoMs": 3
       }
     },
     {
       "id": "d",
       "pregunta": "¿Cuántos flujos hay por protocolo?",
-      "http": 504,
-      "ms": 123086,
+      "http": 200,
+      "ms": 2104,
       "respuesta": {
-        "message": "La consulta superó el tiempo máximo de 120000 ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.",
+        "explanation": "Se utiliza la colección resumen_protocolo para obtener el conteo de flujos agrupado por protocolo (TCP, UDP, etc.), ordenando de mayor a menor cantidad.",
+        "coleccion": "resumen_protocolo",
         "pipeline": [
           {
-            "$group": {
-              "_id": "$Protocol",
-              "cantidad": {
-                "$sum": 1
-              }
-            }
-          },
-          {
             "$sort": {
-              "cantidad": -1
+              "flujos": -1
             }
           }
-        ]
+        ],
+        "totalResultados": 3,
+        "resultados": [
+          {
+            "_id": 17,
+            "flujos": 63396525,
+            "ataques": 63358914,
+            "actualizadoEn": "2026-11-11T16:59:37.410Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": 6,
+            "flujos": 7027114,
+            "ataques": 6953588,
+            "actualizadoEn": "2026-11-11T16:55:08.350Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": 0,
+            "flujos": 3998,
+            "ataques": 1307,
+            "actualizadoEn": "2026-11-11T16:55:08.350Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          }
+        ],
+        "tiempoMs": 3
       }
     },
     {
       "id": "e",
       "pregunta": "¿Cuántos ataques hay en cada hora del día?",
-      "http": 504,
-      "ms": 123990,
+      "http": 200,
+      "ms": 2237,
       "respuesta": {
-        "message": "La consulta superó el tiempo máximo de 120000 ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.",
+        "explanation": "La colección resumen_hora ya contiene los totales de flujos y ataques agrupados por hora. Se ordenan de mayor a menor número de ataques para mostrar las horas con más actividad maliciosa.",
+        "coleccion": "resumen_hora",
         "pipeline": [
           {
-            "$match": {
-              "$and": [
-                {
-                  "Label": {
-                    "$ne": "BENIGN"
-                  }
-                },
-                {
-                  "Label": {
-                    "$ne": "BENIGN"
-                  }
-                }
-              ]
-            }
-          },
-          {
-            "$project": {
-              "hora": {
-                "$substrBytes": [
-                  "$Timestamp",
-                  11,
-                  2
-                ]
-              }
-            }
-          },
-          {
-            "$group": {
-              "_id": "$hora",
-              "cantidad": {
-                "$sum": 1
-              }
-            }
-          },
-          {
             "$sort": {
-              "cantidad": -1
+              "ataques": -1
             }
           }
-        ]
+        ],
+        "totalResultados": 9,
+        "resultados": [
+          {
+            "_id": "13",
+            "flujos": 23566020,
+            "ataques": 23549568,
+            "actualizadoEn": "2026-11-11T16:55:08.328Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": "11",
+            "flujos": 21529822,
+            "ataques": 21512010,
+            "actualizadoEn": "2026-11-11T16:55:08.328Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": "10",
+            "flujos": 15769572,
+            "ataques": 15749685,
+            "actualizadoEn": "2026-11-11T16:55:08.328Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": "12",
+            "flujos": 9373777,
+            "ataques": 9363166,
+            "actualizadoEn": "2026-11-11T16:55:08.328Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": "14",
+            "flujos": 141320,
+            "ataques": 129333,
+            "actualizadoEn": "2026-11-11T16:55:08.328Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": "09",
+            "flujos": 15657,
+            "ataques": 3273,
+            "actualizadoEn": "2026-11-11T16:59:37.402Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": "16",
+            "flujos": 15300,
+            "ataques": 2948,
+            "actualizadoEn": "2026-11-11T16:55:08.328Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": "15",
+            "flujos": 13501,
+            "ataques": 2705,
+            "actualizadoEn": "2026-11-11T16:55:08.328Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          },
+          {
+            "_id": "17",
+            "flujos": 2668,
+            "ataques": 1121,
+            "actualizadoEn": "2026-11-11T16:55:08.328Z",
+            "generacion": "6af4978a7688ba40fab05f91"
+          }
+        ],
+        "tiempoMs": 7
       }
     }
   ],

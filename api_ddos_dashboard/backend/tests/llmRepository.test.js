@@ -34,6 +34,13 @@ test('caps generated limits and the number of stages', () => {
   assert.throws(() => validarPipeline(Array.from({ length: 9 }, () => ({ $limit: 1 }))), /entre 1 y 8/);
 });
 
+test('rechaza una colección no autorizada (resumen_base)', () => {
+  assert.throws(
+    () => validarPipeline([{ $limit: 1 }], 'resumen_base'),
+    (error) => error.statusCode === 400 && /Colección no autorizada: resumen_base/.test(error.message),
+  );
+});
+
 test('rejects filters that contain unsupported query operators', () => {
   assert.throws(
     () => validarPipeline([{ $match: { Label: { $regex: '.*' } } }]),
