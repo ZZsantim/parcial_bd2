@@ -11,7 +11,7 @@ import {
   getTopIps,
 } from '../repositories/informeRepository.js';
 import {
-  aplicarInserciones,
+  aplicarCambios,
   obtenerEstado,
   recalcularResumenes,
 } from '../services/resumenService.js';
@@ -144,7 +144,7 @@ test('inserted flows are added incrementally without a full rebuild', { skip: om
   await db.collection(FLUJOS).insertMany(nuevos);
   assert.equal((await obtenerEstado(db, { coleccionFlujos: FLUJOS })).desactualizado, true);
 
-  const resultado = await aplicarInserciones(db, nuevos.map((doc) => doc._id), { coleccionFlujos: FLUJOS });
+  const resultado = await aplicarCambios(db, nuevos.map((doc) => ({ signo: 1, doc, insercion: true })));
   assert.deepEqual(resultado, { aplicados: 2 });
 
   const resumen = await getResumen(db);
@@ -162,12 +162,48 @@ test('inserted flows are added incrementally without a full rebuild', { skip: om
   // Los _id anteriores al corte del último recálculo ya están contados y se ignoran.
   const antiguos = await db.collection(FLUJOS).find({ Label: 'UDP' }).project({ _id: 1 }).toArray();
   await db.collection('resumen_estado').updateOne({ _id: 'resumenes' }, { $set: { corte: nuevos[0]._id } });
-  assert.deepEqual(await aplicarInserciones(db, antiguos.map((doc) => doc._id), { coleccionFlujos: FLUJOS }), { aplicados: 0 });
+  const cambiosAntiguos = antiguos.map((doc) => ({ signo: 1, doc, insercion: true }));
+  assert.deepEqual(await aplicarCambios(db, cambiosAntiguos), { aplicados: 0 });
 
   const estado = await obtenerEstado(db, { coleccionFlujos: FLUJOS });
   assert.equal(estado.insercionesIncrementales, 2);
   assert.equal(estado.totalResumido, 8);
   assert.equal(estado.desactualizado, false);
+  const deltas = await db.listCollections({ name: /^resumen_delta_/ }).toArray();
+  assert.equal(deltas.length, 0);
+});
+
+// Todas las colecciones resumen sin los campos de control, para comparar estados.
+const fotoResumenes = async () => {
+  const foto = {};
+  for (const nombre of ['resumen_base', 'resumen_general', 'resumen_label', 'resumen_diario', 'resumen_hora',
+    'resumen_protocolo', 'resumen_top_ips_origen', 'resumen_top_ips_destino', 'resumen_puerto_destino']) {
+    const docs = await db.collection(nombre).find({}, { projection: { actualizadoEn: 0, generacion: 0 } }).toArray();
+    foto[nombre] = docs.sort((a, b) => JSON.stringify(a._id).localeCompare(JSON.stringify(b._id)));
+  }
+  return foto;
+};
+
+test('updates subtract the pre-image and add the post-image; deletes subtract the pre-image', { skip: omitir }, async () => {
+  const inicial = await fotoResumenes();
+  const antes = flujo('BENIGN', '2018-12-01 13:00:00', { _id: new ObjectId(), 'Source IP': '10.9.9.9' });
+  await aplicarCambios(db, [{ signo: 1, doc: antes, insercion: true }]);
+  assert.equal((await getResumen(db)).totalFlujosEstimado, 9);
+
+  // update de Label BENIGN → LDAP y de Source IP: resta la versión anterior y suma la nueva.
+  const despues = { ...antes, Label: 'LDAP', 'Source IP': '172.16.0.5' };
+  assert.deepEqual(await aplicarCambios(db, [{ signo: -1, doc: antes }, { signo: 1, doc: despues }]), { aplicados: 2 });
+  const resumen = await getResumen(db);
+  assert.equal(resumen.totalFlujosEstimado, 9);
+  assert.equal(resumen.flujosDeAtaque, 6);
+  const tipos = (await getAnalitica(7, 8, db)).tiposAtaque;
+  assert.deepEqual(tipos.find((item) => item.tipo === 'LDAP'), { tipo: 'LDAP', cantidad: 1 });
+  assert.equal((await db.collection('resumen_label').findOne({ _id: 'BENIGN' })).flujos, inicial.resumen_label.find((d) => d._id === 'BENIGN').flujos);
+  assert.deepEqual((await getTopIps(5, db)).datos[0], { ip: '172.16.0.5', ataques: 4, etiquetas: ['LDAP', 'Syn', 'UDP'] });
+
+  // delete: resta la pre-image; los resúmenes vuelven exactamente al estado inicial.
+  await aplicarCambios(db, [{ signo: -1, doc: despues }]);
+  assert.deepEqual(await fotoResumenes(), inicial);
   const deltas = await db.listCollections({ name: /^resumen_delta_/ }).toArray();
   assert.equal(deltas.length, 0);
 });

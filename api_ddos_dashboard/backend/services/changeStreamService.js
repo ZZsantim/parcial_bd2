@@ -1,9 +1,10 @@
-import { flowsCollectionName, getDB, getFlowsCollection } from '../config/db.js';
+import { getDB, getFlowsCollection } from '../config/db.js';
 import {
-  aplicarInserciones,
+  aplicarCambios,
   crearColaIncremental,
   eventosResumen,
   marcarDesactualizado,
+  reducirFlujo,
 } from './resumenService.js';
 
 const subscribers = new Set();
@@ -31,17 +32,18 @@ const marcarResumenesDesactualizados = (motivo) => {
   });
 };
 
-// Inserciones: se suman a los resúmenes por lotes (agregación sobre esos _id, sin recorrer
-// la colección). Actualizaciones, reemplazos y borrados no traen el documento anterior, así
-// que solo marcan los resúmenes como desactualizados hasta el próximo recálculo completo.
+// Cada cambio se aplica a los resúmenes por lotes, sin recorrer la colección: la inserción
+// suma el documento; update/replace restan la pre-image y suman la post-image; delete resta
+// la pre-image (flujos_limpia tiene changeStreamPreAndPostImages, ver createIndexes.js).
+// Si falta alguna imagen (caducó o no estaba habilitado), se marca desactualizado.
 let colaIncremental = null;
 const crearCola = () => crearColaIncremental({
-  aplicar: (ids) => aplicarInserciones(getDB(), ids, { coleccionFlujos: flowsCollectionName }),
+  aplicar: (cambios) => aplicarCambios(getDB(), cambios),
   alFallar: (error, lote) => {
-    console.error(`[Resúmenes] No se pudieron sumar ${lote.length} inserciones:`, error.message);
-    marcarResumenesDesactualizados(`Falló el incremento de ${lote.length} inserciones: ${error.message}`);
+    console.error(`[Resúmenes] No se pudieron aplicar ${lote.length} cambios:`, error.message);
+    marcarResumenesDesactualizados(`Falló el incremento de ${lote.length} cambios: ${error.message}`);
   },
-  alDesbordar: () => marcarResumenesDesactualizados('Demasiadas inserciones pendientes; se descartó la cola incremental.'),
+  alDesbordar: () => marcarResumenesDesactualizados('Demasiados cambios pendientes; se descartó la cola incremental.'),
 });
 
 eventosResumen.on('actualizados', (detalle) => {
@@ -50,11 +52,18 @@ eventosResumen.on('actualizados', (detalle) => {
 
 const reportChange = (change) => {
   const documentId = change.documentKey?._id ?? null;
-  if (change.operationType === 'insert' && documentId !== null) {
-    colaIncremental?.agregar(documentId);
+  const { operationType: operacion, fullDocument: despues, fullDocumentBeforeChange: antes } = change;
+  const completo = operacion === 'insert' ? Boolean(despues)
+    : operacion === 'delete' ? Boolean(antes)
+      : Boolean(antes && despues);
+  if (completo) {
+    if (operacion !== 'insert') colaIncremental?.agregar({ signo: -1, doc: reducirFlujo(antes) });
+    if (operacion !== 'delete') {
+      colaIncremental?.agregar({ signo: 1, doc: reducirFlujo(despues), insercion: operacion === 'insert' });
+    }
   } else {
     marcarResumenesDesactualizados(
-      `Operación "${change.operationType}" sobre ${documentId ?? 'un documento'}; recalcula con POST /api/informes/resumenes/refrescar.`,
+      `Operación "${operacion}" sobre ${documentId ?? 'un documento'} sin pre/post-image; recalcula con POST /api/informes/resumenes/refrescar.`,
     );
   }
   broadcast('mongo-change', {
@@ -104,7 +113,7 @@ const openChangeStream = async () => {
 
   const stream = getFlowsCollection().watch(
     [{ $match: { operationType: { $in: ['insert', 'update', 'replace', 'delete'] } } }],
-    { maxAwaitTimeMS: 1_000, fullDocument: 'default' },
+    { maxAwaitTimeMS: 1_000, fullDocument: 'whenAvailable', fullDocumentBeforeChange: 'whenAvailable' },
   );
   changeStream = stream;
 

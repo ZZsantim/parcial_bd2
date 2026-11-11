@@ -157,43 +157,92 @@ export const iniciarRecalculo = async (db, opciones = {}) => {
   });
 };
 
-/**
- * Suma a los resúmenes los flujos insertados con los _id indicados. Ejecuta las mismas
- * agregaciones que el recálculo completo, pero solo sobre esos documentos (índice _id):
- * flujos_limpia → delta temporal → $merge en modo "sumar" sobre cada resumen.
- */
-export const aplicarInserciones = async (db, ids, { coleccionFlujos } = {}) => {
-  const estado = await obtenerEstadoGuardado(db);
-  if (!estado?.generacion) return { aplicados: 0, sinResumenes: true };
-  if (estado.recalculando) return { aplicados: 0, aplazado: true };
+// Campos de un flujo que usan los resúmenes (los que lee proyeccionFlujo en resumenPipelines.js).
+const CAMPOS_RESUMIDOS = ['Label', 'Timestamp', 'Protocol', 'Source IP', 'Destination IP', 'Destination Port', 'Flow Bytes/s'];
 
+/** Reduce un flujo del Change Stream a _id y los campos resumidos, para no guardar 88 campos en la cola. */
+export const reducirFlujo = (doc) => Object.fromEntries(
+  ['_id', ...CAMPOS_RESUMIDOS].filter((campo) => campo in doc).map((campo) => [campo, doc[campo]]),
+);
+
+// $documents evalúa expresiones: $literal evita que un valor como "$x" se lea como un campo.
+const comoDocumentos = (docs) => docs.map((doc) => Object.fromEntries(
+  CAMPOS_RESUMIDOS.filter((campo) => campo in doc).map((campo) => [campo, { $literal: doc[campo] }]),
+));
+
+/**
+ * Ejecuta pipelineBase sobre los documentos dados (no sobre flujos_limpia) hacia un delta
+ * temporal y lo suma a resumen_base y a cada resumen. Con signo -1 el delta se resta.
+ */
+const sumarDelta = async (db, docs, signo) => {
   const delta = `resumen_delta_${new ObjectId().toHexString()}`;
   try {
-    await db.collection(coleccionFlujos)
-      .aggregate(pipelineBase({ match: { _id: { $in: ids, $gte: estado.corte } }, destino: delta }))
-      .toArray();
-
+    await db.aggregate([{ $documents: comoDocumentos(docs) }, ...pipelineBase({ destino: delta })]).toArray();
     const deltaCol = db.collection(delta);
-    const [{ flujos = 0 } = {}] = await deltaCol
-      .aggregate([{ $match: { dim: 'tiempo' } }, { $group: { _id: null, flujos: { $sum: '$flujos' } } }])
-      .toArray();
-    if (flujos === 0) return { aplicados: 0 };
-
+    if (signo < 0) {
+      await deltaCol.updateMany({}, [{
+        $set: Object.fromEntries(CAMPOS_BASE.map((campo) => [campo, { $multiply: [`$${campo}`, -1] }])),
+      }]);
+    }
     await deltaCol
       .aggregate([etapaMerge(COLECCIONES.base, 'sumar', { sumar: CAMPOS_BASE })])
       .toArray();
     for (const derivacion of DERIVACIONES) {
       await deltaCol.aggregate(pipelineDerivacion(derivacion, 'sumar')).toArray();
     }
-    await estadoCol(db).updateOne(
-      { _id: ID_ESTADO },
-      { $inc: { insercionesIncrementales: flujos }, $set: { ultimoIncremento: new Date() } },
-    );
-    eventosResumen.emit('actualizados', { tipo: 'incremental', flujos });
-    return { aplicados: flujos };
   } finally {
     await db.collection(delta).drop().catch(() => {});
   }
+};
+
+// Tras restar: quita los documentos que quedaron en 0 y recalcula desde resumen_base las
+// etiquetas de las IP de origen tocadas (el modo "sumar" solo une etiquetas, no las quita).
+const limpiarRestados = async (db, ips) => {
+  await db.collection(COLECCIONES.base).deleteMany({ flujos: 0 });
+  for (const { destino, sumar } of DERIVACIONES) {
+    if (destino !== COLECCIONES.general) await db.collection(destino).deleteMany({ [sumar[0]]: 0 });
+  }
+  if (!ips.length) return;
+  await db.collection(COLECCIONES.base).aggregate([
+    { $match: { dim: 'ipOrigen', ip: { $in: ips } } },
+    { $group: { _id: '$ip', etiquetas: { $addToSet: '$label' } } },
+    { $set: { etiquetas: { $sortArray: { input: '$etiquetas', sortBy: 1 } } } },
+    { $merge: { into: COLECCIONES.ipsOrigen, on: '_id', whenMatched: 'merge', whenNotMatched: 'discard' } },
+  ]).toArray();
+};
+
+/**
+ * Aplica a los resúmenes un lote de cambios del Change Stream sin recorrer la colección:
+ * cada cambio es { signo: 1 | -1, doc, insercion? }. Una inserción suma el documento; un
+ * update/replace resta la pre-image y suma la post-image; un delete resta la pre-image.
+ * Las agregaciones son las mismas del recálculo completo, ejecutadas con $documents.
+ */
+export const aplicarCambios = async (db, cambios) => {
+  const estado = await obtenerEstadoGuardado(db);
+  if (!estado?.generacion) return { aplicados: 0, sinResumenes: true };
+  if (estado.recalculando) return { aplicados: 0, aplazado: true };
+
+  // Una inserción con _id anterior al corte del último recálculo ya está contada.
+  const corte = estado.corte?.toHexString() ?? '';
+  const vigentes = cambios.filter(({ insercion, doc }) => !insercion
+    || (doc._id instanceof ObjectId && doc._id.toHexString() >= corte));
+  if (!vigentes.length) return { aplicados: 0 };
+
+  const restados = vigentes.filter((cambio) => cambio.signo < 0).map((cambio) => cambio.doc);
+  const sumados = vigentes.filter((cambio) => cambio.signo > 0).map((cambio) => cambio.doc);
+  if (restados.length) await sumarDelta(db, restados, -1);
+  if (sumados.length) await sumarDelta(db, sumados, 1);
+  if (restados.length) {
+    await limpiarRestados(db, [...new Set(restados.map((doc) => doc['Source IP']).filter((ip) => ip != null))]);
+  }
+
+  const flujos = sumados.length - restados.length;
+  await estadoCol(db).updateOne(
+    { _id: ID_ESTADO },
+    { $inc: { insercionesIncrementales: flujos }, $set: { ultimoIncremento: new Date() } },
+  );
+  eventosResumen.emit('actualizados', { tipo: 'incremental', flujos, cambios: vigentes.length });
+  return { aplicados: vigentes.length };
 };
 
 /**
@@ -227,8 +276,8 @@ export const obtenerEstado = async (db, { coleccionFlujos } = {}) => {
 };
 
 /**
- * Cola que agrupa los _id insertados que llegan por el Change Stream y los aplica por lotes,
- * uno a la vez. Si hay un recálculo en curso, conserva los _id y reintenta después.
+ * Cola que agrupa los cambios que llegan por el Change Stream y los aplica por lotes, uno a
+ * la vez y en orden. Si hay un recálculo en curso, los conserva y reintenta después.
  */
 export const crearColaIncremental = ({
   aplicar,
