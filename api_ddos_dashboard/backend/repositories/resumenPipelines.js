@@ -354,3 +354,81 @@ export const pipelineLecturaAnalitica = (days, limit) => [
     },
   },
 ];
+
+// ---------------------------------------------------------------------------------------
+// Lecturas con filtros (label, protocol, desde/hasta): en vez de las colecciones resumen,
+// una sola agregación de solo lectura sobre flujos_limpia. Reutiliza los mismos pipelines:
+// $match (con índices) → cubo de pipelineBase → DERIVACIONES en un $facet → la misma
+// lectura, cuyos $lookup leen los arreglos del $facet con $documents.
+// ---------------------------------------------------------------------------------------
+
+export const pipelineFiltrado = (match, lectura) => [
+  ...pipelineBase({ match }).slice(0, -2),
+  { $facet: Object.fromEntries(DERIVACIONES.map(({ destino, etapas }) => [destino, etapas])) },
+  {
+    $replaceWith: {
+      $mergeObjects: [
+        { totalFlujos: 0, flujosDeAtaque: 0, bpsSuma: 0, bpsN: 0 },
+        { $first: `$${COLECCIONES.general}` },
+        '$$ROOT',
+      ],
+    },
+  },
+  ...lectura.slice(1).map((etapa) => (etapa.$lookup
+    ? {
+      $lookup: {
+        let: { fuente: `$${etapa.$lookup.from}` },
+        pipeline: [{ $documents: '$$fuente' }, ...etapa.$lookup.pipeline],
+        as: etapa.$lookup.as,
+      },
+    }
+    : etapa)),
+];
+
+// La hora "YYYY-MM-DD HH" de cada celda del cubo está en el periodo si cae entre las horas
+// de desde y hasta (los periodos van por horas completas; lo valida el controlador).
+const enPeriodo = ({ desde, hasta }) => ({
+  $and: [{ $gte: ['$clave', desde.slice(0, 13)] }, { $lte: ['$clave', hasta.slice(0, 13)] }],
+});
+
+/**
+ * Compara dos periodos {desde, hasta}: flujos, ataques, % de ataques y top 5 de Label.
+ * Lee el cubo de resumen_base (label, fecha, hora, protocolo), que el Change Stream mantiene
+ * al día: recorrer los 70 M de flujos de los dos días tarda más de 10 minutos.
+ */
+export const pipelineComparacion = (a, b) => [
+  { $match: { dim: 'tiempo', fecha: { $ne: null }, hora: { $ne: null } } },
+  { $set: { clave: { $concat: ['$fecha', ' ', '$hora'] } } },
+  {
+    $project: {
+      _id: 0,
+      label: 1,
+      flujos: 1,
+      // Una celda cuenta en los dos periodos si estos se solapan.
+      periodo: [{ $cond: [enPeriodo(a), 'A', null] }, { $cond: [enPeriodo(b), 'B', null] }],
+    },
+  },
+  { $unwind: '$periodo' },
+  { $match: { periodo: { $ne: null } } },
+  { $group: { _id: { periodo: '$periodo', label: '$label' }, flujos: { $sum: '$flujos' } } },
+  {
+    $group: {
+      _id: '$_id.periodo',
+      flujos: { $sum: '$flujos' },
+      ataques: { $sum: { $cond: [esAtaque('$_id.label'), '$flujos', 0] } },
+      labels: { $push: { label: '$_id.label', flujos: '$flujos' } },
+    },
+  },
+  {
+    $project: {
+      _id: 0,
+      periodo: '$_id',
+      flujos: 1,
+      ataques: 1,
+      porcentajeAtaques: { $multiply: [{ $divide: ['$ataques', '$flujos'] }, 100] },
+      topLabels: {
+        $firstN: { n: 5, input: { $sortArray: { input: '$labels', sortBy: { flujos: -1, label: 1 } } } },
+      },
+    },
+  },
+];

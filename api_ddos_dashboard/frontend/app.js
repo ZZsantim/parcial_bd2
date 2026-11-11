@@ -28,6 +28,32 @@ const showDashboardError = (error) => {
   setConnection('databaseLight', 'databaseStatus', 'databaseDetail', 'bad', 'MongoDB no disponible', 'Falló la consulta de datos');
 };
 
+// Barras agrupadas: cada grupo es { etiqueta, total, ataques } (barra azul y naranja).
+const drawGroupedBars = (chart, groups, names = ['Flujos', 'Ataques']) => {
+  const maxTotal = Math.max(...groups.flatMap((item) => [item.total, item.ataques]), 1);
+  for (const item of groups) {
+    const column = document.createElement('div');
+    column.className = 'chart-column';
+    const bars = document.createElement('div');
+    bars.className = 'bars';
+
+    for (const [kind, value, name] of [['total', item.total, names[0]], ['attacks', item.ataques, names[1]]]) {
+      const bar = document.createElement('i');
+      bar.className = `bar ${kind}`;
+      bar.style.height = `${Math.max((value / maxTotal) * 100, 2)}%`;
+      bar.title = `${name}: ${numberFormat.format(value)}`;
+      bars.append(bar);
+    }
+
+    const date = document.createElement('span');
+    date.className = 'chart-date';
+    date.textContent = item.etiqueta;
+    date.title = item.etiqueta;
+    column.append(bars, date);
+    chart.append(column);
+  }
+};
+
 const drawSeries = ({ datos, flujosAnalizados }) => {
   const chart = $('seriesChart');
   chart.replaceChildren();
@@ -41,26 +67,32 @@ const drawSeries = ({ datos, flujosAnalizados }) => {
     return;
   }
 
-  const maxTotal = Math.max(...datos.map((item) => item.total), 1);
-  for (const item of datos) {
-    const column = document.createElement('div');
-    column.className = 'chart-column';
-    const bars = document.createElement('div');
-    bars.className = 'bars';
+  drawGroupedBars(chart, datos.map((item) => ({ ...item, etiqueta: item.fecha.slice(5) })));
+};
 
-    for (const [kind, value] of [['total', item.total], ['attacks', item.ataques]]) {
-      const bar = document.createElement('i');
-      bar.className = `bar ${kind}`;
-      bar.style.height = `${Math.max((value / maxTotal) * 100, 2)}%`;
-      bar.title = `${kind === 'total' ? 'Flujos' : 'Ataques'}: ${numberFormat.format(value)}`;
-      bars.append(bar);
-    }
+// Informe 13: grupos "Flujos", "Ataques" y el top 5 de Label de cada día; azul 01-12, naranja 03-11.
+const drawComparison = ({ periodoA, periodoB }) => {
+  const chart = $('comparisonChart');
+  chart.replaceChildren();
+  const cantidad = (periodo, label) => periodo.topLabels.find((item) => item.label === label)?.flujos ?? 0;
+  const labels = [...new Set([...periodoA.topLabels, ...periodoB.topLabels].map((item) => item.label))];
+  const groups = [
+    { etiqueta: 'Flujos', total: periodoA.flujos, ataques: periodoB.flujos },
+    { etiqueta: 'Ataques', total: periodoA.ataques, ataques: periodoB.ataques },
+    ...labels.map((label) => ({ etiqueta: label ?? 'Sin Label', total: cantidad(periodoA, label), ataques: cantidad(periodoB, label) })),
+  ];
+  chart.style.gridTemplateColumns = `repeat(${groups.length}, minmax(20px, 1fr))`;
+  drawGroupedBars(chart, groups, ['01-12', '03-11']);
+  const percent = (periodo) => `${numberFormat.format(periodo.porcentajeAtaques)}% de ataques`;
+  setText('comparisonSummary', `01-12: ${percent(periodoA)} · 03-11: ${percent(periodoB)} · Top 5 de Label de cada día (un Label fuera del top 5 de un día se muestra en 0).`);
+};
 
-    const date = document.createElement('span');
-    date.className = 'chart-date';
-    date.textContent = item.fecha.slice(5);
-    column.append(bars, date);
-    chart.append(column);
+const loadComparison = async () => {
+  try {
+    const params = 'desdeA=2018-12-01&hastaA=2018-12-01&desdeB=2018-11-03&hastaB=2018-11-03';
+    drawComparison(await requestJson(`/api/informes/comparacion?${params}`));
+  } catch (error) {
+    setText('comparisonSummary', `No se pudo comparar los periodos: ${error.message}`);
   }
 };
 
@@ -367,6 +399,7 @@ for (const button of document.querySelectorAll('[data-prompt]')) {
 
 $('refreshButton').addEventListener('click', () => {
   loadDashboard();
+  loadComparison();
   checkHealth();
 });
 
@@ -429,4 +462,5 @@ events.onerror = () => {
 };
 
 loadDashboard();
+loadComparison();
 checkHealth();

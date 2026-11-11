@@ -100,7 +100,7 @@ h1, h2, p { margin-top: 0; }
 .bar { min-height: 2px; width: 9px; border-radius: 4px 4px 0 0; }
 .bar.total { background: #3982d5; }
 .bar.attacks { background: #e49444; }
-.chart-date { color: #8492a5; font-size: 8px; }
+.chart-date { max-width: 100%; overflow: hidden; color: #8492a5; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .chart-legend { display: flex; gap: 16px; margin-top: 10px; color: #8795a7; font-size: 9px; }
 .chart-legend span { display: flex; align-items: center; gap: 6px; }
 .chart-legend i { width: 7px; height: 7px; border-radius: 2px; }

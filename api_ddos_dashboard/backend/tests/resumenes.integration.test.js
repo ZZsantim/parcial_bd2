@@ -6,6 +6,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import '../config/db.js'; // carga backend/.env
 import {
   getAnalitica,
+  getComparacion,
   getResumen,
   getSeries,
   getTopIps,
@@ -206,6 +207,38 @@ test('updates subtract the pre-image and add the post-image; deletes subtract th
   assert.deepEqual(await fotoResumenes(), inicial);
   const deltas = await db.listCollections({ name: /^resumen_delta_/ }).toArray();
   assert.equal(deltas.length, 0);
+});
+
+test('filtered reports aggregate flujos_limpia directly; the comparison reads resumen_base', { skip: omitir }, async () => {
+  // Con filtros, la misma forma de respuesta pero calculada sobre los flujos que cumplen el $match.
+  const syn = await getResumen(db, { label: 'Syn' });
+  assert.equal(syn.totalFlujosEstimado, 3);
+  assert.equal(syn.flujosDeAtaque, 3);
+  assert.equal(syn.tipoAtaqueMasFrecuente, 'Syn');
+  const udpNov = await getAnalitica(7, 8, db, { protocol: 17, desde: '2018-11-03 00:00:00', hasta: '2018-11-03 23:59:59' });
+  assert.equal(udpNov.flujosAnalizados, 2);
+  assert.deepEqual(udpNov.tiposAtaque, [{ tipo: 'UDP', cantidad: 1 }]);
+  assert.deepEqual(udpNov.series, [{ fecha: '2018-11-03', total: 2, ataques: 1 }]);
+  assert.deepEqual((await getTopIps(5, db, { label: 'DrDoS_DNS' })).datos, [{ ip: '172.16.0.6', ataques: 1, etiquetas: ['DrDoS_DNS'] }]);
+  assert.equal((await getResumen(db, { label: 'NoExiste' })).totalFlujosEstimado, 0);
+
+  const comparacion = await getComparacion(
+    { desde: '2018-12-01 00:00:00', hasta: '2018-12-01 23:59:59' },
+    { desde: '2018-11-03 00:00:00', hasta: '2018-11-03 23:59:59' },
+    db,
+  );
+  assert.deepEqual(comparacion.periodoB, {
+    periodo: 'B',
+    desde: '2018-11-03 00:00:00',
+    hasta: '2018-11-03 23:59:59',
+    flujos: 5,
+    ataques: 3,
+    porcentajeAtaques: 60,
+    topLabels: [{ label: 'BENIGN', flujos: 2 }, { label: 'Syn', flujos: 2 }, { label: 'UDP', flujos: 1 }],
+  });
+  // 01-12: DrDoS_DNS del fixture y los dos flujos insertados en la prueba incremental.
+  assert.equal(comparacion.periodoA.flujos, 3);
+  assert.equal(comparacion.periodoA.ataques, 2);
 });
 
 test('reading reports missing summaries with a dedicated error', { skip: omitir }, async () => {
