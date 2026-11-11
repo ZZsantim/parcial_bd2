@@ -1,34 +1,11 @@
 import { getFlowsCollection } from '../config/db.js';
+import { NOMBRES_CAMPOS_FLUJO } from './esquemaFlujos.js';
 
 const SAMPLE_SIZE = 10_000;
 const RESULT_LIMIT = 100;
 const MAX_STAGES = 8;
 
-const sourceFields = new Set([
-  '_id',
-  'Flow ID',
-  'Source IP',
-  'Source Port',
-  'Destination IP',
-  'Destination Port',
-  'Protocol',
-  'Timestamp',
-  'Flow Duration',
-  'Total Fwd Packets',
-  'Total Backward Packets',
-  'Total Length of Fwd Packets',
-  'Total Length of Bwd Packets',
-  'Flow Bytes/s',
-  'Flow Packets/s',
-  'Fwd Packets/s',
-  'Bwd Packets/s',
-  'SYN Flag Count',
-  'ACK Flag Count',
-  'FIN Flag Count',
-  'RST Flag Count',
-  'Inbound',
-  'Label',
-]);
+const sourceFields = new Set(NOMBRES_CAMPOS_FLUJO);
 
 const allowedStages = new Set([
   '$match',
@@ -42,6 +19,7 @@ const allowedStages = new Set([
 const allowedExpressionOperators = new Set([
   '$abs',
   '$add',
+  '$concat',
   '$addToSet',
   '$and',
   '$avg',
@@ -70,8 +48,10 @@ const allowedExpressionOperators = new Set([
   '$round',
   '$size',
   '$sortArray',
+  '$substrBytes',
   '$subtract',
   '$sum',
+  '$toInt',
   '$toLower',
   '$toString',
 ]);

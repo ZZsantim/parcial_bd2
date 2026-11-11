@@ -2,38 +2,16 @@ import {
   ejecutarConsultaGenerada,
   validarPipeline,
 } from '../repositories/llmRepository.js';
+import { describirEsquemaFlujos } from '../repositories/esquemaFlujos.js';
 
 const ollamaUrl = (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-const ollamaModel = process.env.OLLAMA_MODEL || 'kimi-k2.5';
+// qwen3.5:9b es el mejor modelo de chat instalado en el Ollama local (kimi-k2.5 no está).
+export const ollamaModel = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
 const ollamaTimeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 120_000);
 
-const fieldDescription = [
-  '_id (id BSON)',
-  'Flow ID (string)',
-  'Source IP (string)',
-  'Source Port (number)',
-  'Destination IP (string)',
-  'Destination Port (number)',
-  'Protocol (number)',
-  'Timestamp (string: YYYY-MM-DD HH:mm:ss)',
-  'Flow Duration (number, microseconds)',
-  'Total Fwd Packets (number)',
-  'Total Backward Packets (number)',
-  'Total Length of Fwd Packets (number)',
-  'Total Length of Bwd Packets (number)',
-  'Flow Bytes/s (number; absent when the original value was Infinity or NaN)',
-  'Flow Packets/s (number)',
-  'Fwd Packets/s (number)',
-  'Bwd Packets/s (number)',
-  'SYN Flag Count (number)',
-  'ACK Flag Count (number)',
-  'FIN Flag Count (number)',
-  'RST Flag Count (number)',
-  'Inbound (number)',
-  'Label (string; BENIGN indicates benign traffic, other labels are attack types)',
-].join('\n- ');
+const fieldDescription = describirEsquemaFlujos();
 
-const systemPrompt = `Eres un asistente de analítica para flujos de red CIC-DDoS2019.
+export const systemPrompt = `Eres un asistente de analítica para flujos de red CIC-DDoS2019.
 Convierte la pregunta en una consulta MongoDB de solo lectura y responde ÚNICAMENTE un objeto JSON válido con esta forma:
 {"pipeline":[{"$match":{...}},{"$group":{"_id":"$Label","cantidad":{"$sum":1}}},{"$sort":{"cantidad":-1}}],"explanation":"Explicación breve en español"}
 
@@ -41,10 +19,11 @@ La consulta se ejecutará en una muestra de los 10 000 flujos más recientes, no
 Si preguntan por ataques, tráfico malicioso o tipos DDoS, excluye Label BENIGN (siempre escrito exactamente como BENIGN). Si comparan explícitamente benigno contra ataque, conserva ambas clases.
 Si preguntan por los N primeros o más frecuentes, agrega $limit con N después de ordenar.
 Solo puedes usar etapas $match, $group, $project, $sort, $limit y $count.
-Solo puedes usar campos de estos documentos:
+Solo puedes usar estos campos; escribe cada nombre exactamente igual (con sus espacios, mayúsculas y sufijos como "Fwd Header Length_1"):
 - ${fieldDescription}
 Los operadores de filtro permitidos son $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin y $exists; $and/$or se permiten para combinar filtros.
-En expresiones solo puedes usar agregadores y operadores aritméticos/lógicos básicos. Nunca uses acceso a otras colecciones, $where, JavaScript, $function, $out, $merge, $lookup, $unionWith, ni etapas de escritura.
+Timestamp es texto: filtra por fecha con comparaciones de texto ("2018-12-01 00:00:00") y agrupa por hora con {"$substrBytes":["$Timestamp",11,2]}.
+En expresiones solo puedes usar agregadores ($sum, $avg, $min, $max, $first, $last, $push, $addToSet), operadores aritméticos/lógicos básicos, $cond, $ifNull, $concat, $substrBytes, $toInt, $toString y $round. Nunca uses acceso a otras colecciones, $where, JavaScript, $function, $out, $merge, $lookup, $unionWith, ni etapas de escritura.
 No inventes campos. No devuelvas Markdown, bloques de código ni texto fuera del JSON.
 Si no puedes interpretar la pregunta, usa pipeline [] y explica qué aclaración hace falta.`;
 
@@ -145,6 +124,7 @@ export const consultarEnLenguajeNatural = async (question) => {
       body: JSON.stringify({
         model: ollamaModel,
         stream: false,
+        think: false,
         format: 'json',
         options: { temperature: 0, num_predict: 1024 },
         messages: [
