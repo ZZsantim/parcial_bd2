@@ -36,7 +36,7 @@ const drawSeries = ({ datos, flujosAnalizados }) => {
   if (!datos.length) {
     const empty = document.createElement('p');
     empty.className = 'chart-empty';
-    empty.textContent = 'MongoDB no devolvió flujos con fecha válida en la muestra.';
+    empty.textContent = 'MongoDB no devolvió flujos con fecha válida en el dataset.';
     chart.append(empty);
     return;
   }
@@ -72,7 +72,7 @@ const drawTopIps = ({ datos, flujosAnalizados }) => {
   if (!datos.length) {
     const empty = document.createElement('p');
     empty.className = 'chart-empty';
-    empty.textContent = 'No hay IPs clasificadas como ataque en la muestra.';
+    empty.textContent = 'No hay IPs clasificadas como ataque en el dataset.';
     list.append(empty);
     return;
   }
@@ -104,7 +104,7 @@ const drawRankedList = (elementId, entries, labelFor, valueFor, valueLabel) => {
   if (!entries.length) {
     const empty = document.createElement('p');
     empty.className = 'chart-empty';
-    empty.textContent = 'Sin resultados en la muestra analizada.';
+    empty.textContent = 'Sin resultados en el dataset.';
     list.append(empty);
     return;
   }
@@ -236,7 +236,7 @@ const loadDashboard = async () => {
     setText('metricReportTitle', 'INFORME 1 · INDICADORES GENERALES');
     setText('metricTotal', numberFormat.format(summary.totalFlujosEstimado));
     setText('metricAttacks', numberFormat.format(summary.flujosDeAtaque));
-    setText('metricSample', `${numberFormat.format(summary.flujosAnalizados)} flujos recientes`);
+    setText('metricSample', `${numberFormat.format(summary.flujosAnalizados)} flujos (dataset completo)`);
     setText('metricRate', `${numberFormat.format(summary.porcentajeDeAtaque)}%`);
     setText('metricType', summary.tipoAtaqueMasFrecuente || 'Sin datos');
     drawAnalitica(analytics);
@@ -416,6 +416,11 @@ events.addEventListener('mongo-change', (event) => {
   setText('liveLastChange', `Último cambio: ${receivedAt.toLocaleString('es-CO')}`);
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(loadDashboard, 400);
+});
+// El backend suma las inserciones a las colecciones resumen por lotes y avisa al terminar.
+events.addEventListener('resumenes-actualizados', () => {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(loadDashboard, 200);
 });
 events.onerror = () => {
   setText('liveReportStatus', 'Reconectando…');

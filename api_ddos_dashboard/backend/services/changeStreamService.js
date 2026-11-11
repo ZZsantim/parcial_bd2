@@ -1,4 +1,10 @@
-import { getFlowsCollection } from '../config/db.js';
+import { flowsCollectionName, getDB, getFlowsCollection } from '../config/db.js';
+import {
+  aplicarInserciones,
+  crearColaIncremental,
+  eventosResumen,
+  marcarDesactualizado,
+} from './resumenService.js';
 
 const subscribers = new Set();
 let changeStream = null;
@@ -19,10 +25,41 @@ const broadcast = (event, data) => {
   }
 };
 
+const marcarResumenesDesactualizados = (motivo) => {
+  marcarDesactualizado(getDB(), motivo).catch((error) => {
+    console.error('[Resúmenes] No se pudo marcar el estado como desactualizado:', error.message);
+  });
+};
+
+// Inserciones: se suman a los resúmenes por lotes (agregación sobre esos _id, sin recorrer
+// la colección). Actualizaciones, reemplazos y borrados no traen el documento anterior, así
+// que solo marcan los resúmenes como desactualizados hasta el próximo recálculo completo.
+let colaIncremental = null;
+const crearCola = () => crearColaIncremental({
+  aplicar: (ids) => aplicarInserciones(getDB(), ids, { coleccionFlujos: flowsCollectionName }),
+  alFallar: (error, lote) => {
+    console.error(`[Resúmenes] No se pudieron sumar ${lote.length} inserciones:`, error.message);
+    marcarResumenesDesactualizados(`Falló el incremento de ${lote.length} inserciones: ${error.message}`);
+  },
+  alDesbordar: () => marcarResumenesDesactualizados('Demasiadas inserciones pendientes; se descartó la cola incremental.'),
+});
+
+eventosResumen.on('actualizados', (detalle) => {
+  broadcast('resumenes-actualizados', { ...detalle, at: new Date().toISOString() });
+});
+
 const reportChange = (change) => {
+  const documentId = change.documentKey?._id ?? null;
+  if (change.operationType === 'insert' && documentId !== null) {
+    colaIncremental?.agregar(documentId);
+  } else {
+    marcarResumenesDesactualizados(
+      `Operación "${change.operationType}" sobre ${documentId ?? 'un documento'}; recalcula con POST /api/informes/resumenes/refrescar.`,
+    );
+  }
   broadcast('mongo-change', {
     operation: change.operationType,
-    documentId: change.documentKey?._id?.toString() ?? null,
+    documentId: documentId?.toString() ?? null,
     at: new Date().toISOString(),
   });
 };
@@ -73,6 +110,9 @@ const openChangeStream = async () => {
 
   const initialChange = await stream.tryNext();
   if (initialChange) reportChange(initialChange);
+  if (retryAttempt > 0) {
+    marcarResumenesDesactualizados('El change stream se reconectó; pudieron perderse eventos mientras estuvo caído.');
+  }
   retryAttempt = 0;
   status = 'connected';
   broadcast('stream-status', { status });
@@ -81,6 +121,7 @@ const openChangeStream = async () => {
 
 export const startChangeStream = async () => {
   stopping = false;
+  colaIncremental = crearCola();
   await openChangeStream();
 };
 
@@ -121,6 +162,11 @@ export const stopChangeStream = async () => {
     const stream = changeStream;
     changeStream = null;
     await stream.close();
+  }
+  if (colaIncremental) {
+    const cola = colaIncremental;
+    colaIncremental = null;
+    await cola.detener();
   }
 };
 
