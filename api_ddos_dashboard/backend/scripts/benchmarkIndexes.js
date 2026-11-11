@@ -1,11 +1,15 @@
-// Compara cada consulta con su índice y con COLLSCAN forzado (hint {$natural: 1}).
-// No crea ni elimina índices y no modifica documentos: solo ejecuta explain("executionStats").
+// Compara cada consulta con el plan que elige el planificador (IXSCAN) y con COLLSCAN forzado
+// (hint {$natural: 1}). No crea ni elimina índices y no modifica documentos: solo ejecuta
+// explain("executionStats"). Guarda la salida cruda en docs/benchmark-indices.json y genera
+// docs/optimizacion-indices.md a partir de ese JSON.
 //
 // Variables opcionales:
-//   BENCH_RUNS=3            ejecuciones por variante (se reporta la mediana)
-//   BENCH_MAX_TIME_MS=...   tope por ejecución; si se supera, la corrida se marca como cortada
-//   BENCH_ONLY=q1,q3        ejecutar solo algunas consultas
+//   BENCH_RUNS=3            corridas con índice por consulta
+//   BENCH_RUNS_COLLSCAN=3   corridas con COLLSCAN forzado por consulta (por defecto = BENCH_RUNS)
+//   BENCH_MAX_TIME_MS=...   tope por ejecución (por defecto sin tope); si se supera, la corrida se marca como cortada
+//   BENCH_ONLY=a,c          ejecutar solo algunas consultas
 import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -14,109 +18,109 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const docsDir = path.resolve(__dirname, '../../docs');
+const jsonPath = path.join(docsDir, 'benchmark-indices.json');
+const mdPath = path.join(docsDir, 'optimizacion-indices.md');
 const RUNS = Number(process.env.BENCH_RUNS) || 3;
-const MAX_TIME_MS = Number(process.env.BENCH_MAX_TIME_MS) || 900_000;
+const RUNS_COLLSCAN = Number(process.env.BENCH_RUNS_COLLSCAN) || RUNS;
+const MAX_TIME_MS = Number(process.env.BENCH_MAX_TIME_MS) || 0;
 const ONLY = process.env.BENCH_ONLY?.split(',').map((s) => s.trim()).filter(Boolean);
 
-const queries = [
+// Los cinco índices de flujos_limpia y la consulta que optimiza cada uno.
+const indices = [
   {
-    id: 'q1',
-    titulo: 'Flujos de una IP de origen concreta',
-    consulta: 'db.flujos_limpia.find({ "Source IP": "192.168.50.6" })',
-    indice: 'idx_source_ip',
-    campos: '{ "Source IP": 1 }',
-    tipo: 'Simple (un campo, ascendente)',
-    justificacion: 'Investigar un host concreto es una búsqueda por igualdad muy selectiva: 192.168.50.6 tiene unos 34 000 flujos de 70 M (0,05 %). Sin índice hay que leer toda la colección.',
-    kind: 'find',
-    filter: { 'Source IP': '192.168.50.6' },
-  },
-  {
-    id: 'q2',
-    titulo: 'Flujos de una etiqueta poco frecuente (Portmap)',
-    consulta: 'db.flujos_limpia.find({ Label: "Portmap" })',
-    indice: 'idx_label',
-    campos: '{ Label: 1 }',
-    tipo: 'Simple (un campo, ascendente)',
-    justificacion: 'Filtrar por tipo de ataque es la consulta base de clasificación. Portmap tiene unos 187 000 flujos (0,27 %); el índice salta directamente a ese rango de claves.',
-    kind: 'find',
-    filter: { Label: 'Portmap' },
-  },
-  {
-    id: 'q3',
-    titulo: 'Etiqueta + rango de Timestamp, orden por Timestamp descendente',
-    consulta: 'db.flujos_limpia.find({ Label: "Syn", Timestamp: { $gte: "2018-12-01 13:34:00", $lt: "2018-12-01 13:35:00" } }).sort({ Timestamp: -1 })',
-    indice: 'idx_label_timestamp',
-    campos: '{ Label: 1, Timestamp: -1 }',
-    tipo: 'Compuesto (igualdad + rango/orden)',
-    justificacion: 'Sigue la regla igualdad → orden → rango: Label fija el prefijo y Timestamp, ya ordenado descendente dentro de cada etiqueta, resuelve el rango y el sort sin etapa SORT en memoria.',
-    kind: 'find',
-    filter: { Label: 'Syn', Timestamp: { $gte: '2018-12-01 13:34:00', $lt: '2018-12-01 13:35:00' } },
-    sort: { Timestamp: -1 },
-  },
-  {
-    id: 'q4',
-    titulo: 'Flujos de un protocolo poco frecuente (Protocol 0)',
-    consulta: 'db.flujos_limpia.find({ Protocol: 0 })',
-    indice: 'idx_protocol',
-    campos: '{ Protocol: 1 }',
-    tipo: 'Simple (un campo, ascendente)',
-    justificacion: 'Protocol tiene solo tres valores (0, 6, 17), pero el 0 (HOPOPT) aparece en unos 4 000 flujos: en valores raros un índice de baja cardinalidad sigue siendo muy selectivo.',
-    kind: 'find',
-    filter: { Protocol: 0 },
-  },
-  {
-    id: 'q5',
-    titulo: 'Conteo por Label en una ventana de un minuto',
-    consulta: 'db.flujos_limpia.aggregate([{ $match: { Timestamp: { $gte: "2018-12-01 13:30:00", $lt: "2018-12-01 13:31:00" } } }, { $group: { _id: "$Label", flujos: { $sum: 1 } } }])',
-    indice: 'idxtimestamp',
+    nombre: 'idxtimestamp',
     campos: '{ Timestamp: 1 }',
-    tipo: 'Simple (un campo, ascendente)',
-    justificacion: 'Los informes del dashboard agregan por periodo. El índice temporal limita el $match a la ventana pedida antes del $group, en lugar de agrupar recorriendo toda la colección.',
-    kind: 'aggregate',
-    pipeline: [
-      { $match: { Timestamp: { $gte: '2018-12-01 13:30:00', $lt: '2018-12-01 13:31:00' } } },
-      { $group: { _id: '$Label', flujos: { $sum: 1 } } },
-    ],
+    tipo: 'Simple',
+    consulta: 'Informes por periodo: `find`/`$match` por rango de `Timestamp` (no medida en este benchmark)',
+    justificacion: 'Limita las consultas por ventana de tiempo al rango de claves pedido en lugar de recorrer los 70 M de flujos.',
+  },
+  {
+    nombre: 'idx_label',
+    campos: '{ Label: 1 }',
+    tipo: 'Simple',
+    consulta: '(b) `{ Label: "WebDDoS" }`',
+    justificacion: 'Filtrar por tipo de ataque es la consulta base de clasificación; en etiquetas raras el índice salta directo a pocas claves.',
+  },
+  {
+    nombre: 'idx_source_ip',
+    campos: '{ "Source IP": 1 }',
+    tipo: 'Simple',
+    consulta: '(a) `{ "Source IP": "104.27.33.64" }`',
+    justificacion: 'Investigar un host es una igualdad muy selectiva (1 577 IP distintas); sin índice hay que leer toda la colección.',
+  },
+  {
+    nombre: 'idx_protocol',
+    campos: '{ Protocol: 1 }',
+    tipo: 'Simple',
+    consulta: '(d) `{ Protocol: 0 }`',
+    justificacion: 'Solo hay tres protocolos, pero el 0 aparece en 3 998 flujos: en un valor raro un índice de baja cardinalidad sigue siendo selectivo.',
+  },
+  {
+    nombre: 'idx_label_timestamp',
+    campos: '{ Label: 1, Timestamp: -1 }',
+    tipo: 'Compuesto',
+    consulta: '(c) `{ Label: "BENIGN", Timestamp: { $gte, $lt } }`',
+    justificacion: 'Igualdad en `Label` como prefijo y rango en `Timestamp` dentro de esa etiqueta: solo se leen las claves de la ventana pedida.',
   },
 ];
 
-const findStages = (value, stages = new Set()) => {
-  if (!value || typeof value !== 'object') return stages;
-  if (typeof value.stage === 'string') stages.add(value.stage);
-  for (const nested of Object.values(value)) findStages(nested, stages);
-  return stages;
+const queries = [
+  {
+    id: 'a',
+    titulo: 'IP de origen concreta (104.27.33.64)',
+    consulta: 'db.flujos_limpia.find({ "Source IP": "104.27.33.64" })',
+    indiceEsperado: 'idx_source_ip',
+    filter: { 'Source IP': '104.27.33.64' },
+  },
+  {
+    id: 'b',
+    titulo: 'Etiqueta rara (WebDDoS)',
+    consulta: 'db.flujos_limpia.find({ Label: "WebDDoS" })',
+    indiceEsperado: 'idx_label',
+    filter: { Label: 'WebDDoS' },
+  },
+  {
+    id: 'c',
+    titulo: 'Label + rango de Timestamp (BENIGN, 1 minuto)',
+    consulta: 'db.flujos_limpia.find({ Label: "BENIGN", Timestamp: { $gte: "2018-12-01 10:00:00", $lt: "2018-12-01 10:01:00" } })',
+    indiceEsperado: 'idx_label_timestamp',
+    filter: { Label: 'BENIGN', Timestamp: { $gte: '2018-12-01 10:00:00', $lt: '2018-12-01 10:01:00' } },
+  },
+  {
+    id: 'd',
+    titulo: 'Protocolo poco frecuente (Protocol 0)',
+    consulta: 'db.flujos_limpia.find({ Protocol: 0 })',
+    indiceEsperado: 'idx_protocol',
+    filter: { Protocol: 0 },
+  },
+];
+
+const walkPlan = (value, found = { stages: new Set(), indexes: new Set() }) => {
+  if (!value || typeof value !== 'object') return found;
+  if (typeof value.stage === 'string') found.stages.add(value.stage);
+  if (value.stage === 'IXSCAN' && value.indexName) found.indexes.add(value.indexName);
+  for (const nested of Object.values(value)) walkPlan(nested, found);
+  return found;
 };
 
 const planType = (stages) => {
   if (stages.has('COLLSCAN')) return 'COLLSCAN';
-  if (['IXSCAN', 'COUNT_SCAN', 'DISTINCT_SCAN'].some((s) => stages.has(s))) return 'IXSCAN';
+  if (stages.has('IXSCAN')) return 'IXSCAN';
   return [...stages].join('+') || 'desconocido';
 };
 
-// En un aggregate el explain puede traer las estadísticas en la raíz (pipeline empujado al
-// motor de consultas) o dentro de stages[0].$cursor.
-const cursorOf = (explanation) => {
-  if (explanation.queryPlanner && explanation.executionStats) return explanation;
-  const cursor = explanation.stages?.find((stage) => stage.$cursor)?.$cursor;
-  if (cursor?.queryPlanner && cursor.executionStats) return cursor;
-  throw new Error('El explain no contiene queryPlanner/executionStats.');
-};
-
 const explainOnce = async (collection, query, hint) => {
-  const explanation = query.kind === 'aggregate'
-    ? await collection
-      .aggregate(query.pipeline, { hint, maxTimeMS: MAX_TIME_MS, allowDiskUse: true })
-      .explain('executionStats')
-    : await (() => {
-      let cursor = collection.find(query.filter).hint(hint).maxTimeMS(MAX_TIME_MS);
-      if (query.sort) cursor = cursor.sort(query.sort).allowDiskUse(true);
-      return cursor.explain('executionStats');
-    })();
-  const { queryPlanner, executionStats } = cursorOf(explanation);
-  const stages = findStages(queryPlanner.winningPlan);
+  let cursor = collection.find(query.filter);
+  if (hint) cursor = cursor.hint(hint);
+  if (MAX_TIME_MS) cursor = cursor.maxTimeMS(MAX_TIME_MS);
+  const { queryPlanner, executionStats } = await cursor.explain('executionStats');
+  // Con maxTimeMS, explain no lanza error: devuelve executionSuccess false con estadísticas parciales.
+  if (executionStats.executionSuccess === false) return { cortada: true, error: executionStats.errorMessage };
+  const { stages, indexes } = walkPlan(queryPlanner.winningPlan);
   return {
     cortada: false,
     plan: planType(stages),
+    indice: [...indexes].join(', ') || null,
     etapas: [...stages],
     executionTimeMillis: executionStats.executionTimeMillis,
     totalDocsExamined: executionStats.totalDocsExamined,
@@ -125,140 +129,163 @@ const explainOnce = async (collection, query, hint) => {
   };
 };
 
-const runVariant = async (collection, query, hint) => {
-  const runs = [];
-  for (let i = 0; i < RUNS; i += 1) {
-    const started = Date.now();
+const runVariant = async (collection, query, hint, runs) => {
+  const results = [];
+  for (let i = 0; i < runs; i += 1) {
+    const inicio = new Date();
     try {
-      runs.push(await explainOnce(collection, query, hint));
+      results.push({ inicio: inicio.toISOString(), ...(await explainOnce(collection, query, hint)) });
     } catch (error) {
       if (error.code !== 50 && error.codeName !== 'MaxTimeMSExpired') throw error;
-      runs.push({ cortada: true, wallMillis: Date.now() - started });
+      results.push({ inicio: inicio.toISOString(), cortada: true });
     }
-    const last = runs.at(-1);
-    console.error(`  ${query.id} ${JSON.stringify(hint)} corrida ${i + 1}/${RUNS}: ${
-      last.cortada ? `cortada a ${MAX_TIME_MS} ms` : `${last.executionTimeMillis} ms, ${last.plan}`}`);
+    const last = results.at(-1);
+    last.wallMillis = Date.now() - inicio.getTime();
+    console.error(`  ${query.id} ${hint ? JSON.stringify(hint) : 'planificador'} corrida ${i + 1}/${runs}: ${
+      last.cortada ? `cortada a ${MAX_TIME_MS} ms` : `${last.executionTimeMillis} ms, ${last.plan} ${last.indice ?? ''}`}`);
   }
-  return runs;
+  return results;
 };
 
-// Las corridas cortadas cuentan como +∞ para la mediana.
 const median = (values) => {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];
 };
 
-const summarize = (runs) => {
+// ---- Markdown a partir del JSON ----
+
+const fmt = (n) => (n === null || n === undefined ? '—' : n.toLocaleString('es-CO'));
+
+const stats = (runs) => {
   const done = runs.filter((r) => !r.cortada);
-  const pick = (key) => median(runs.map((r) => (r.cortada ? Infinity : r[key])));
-  const time = pick('executionTimeMillis');
+  const times = done.map((r) => r.executionTimeMillis);
+  const first = done[0] ?? {};
   return {
     corridas: runs.length,
     cortadas: runs.length - done.length,
-    plan: done[0]?.plan ?? 'cortada',
-    executionTimeMillis: Number.isFinite(time) ? time : null,
-    // Las métricas de documentos son deterministas; se toman de las corridas completas.
-    totalDocsExamined: done.length ? median(done.map((r) => r.totalDocsExamined)) : null,
-    totalKeysExamined: done.length ? median(done.map((r) => r.totalKeysExamined)) : null,
-    nReturned: done.length ? median(done.map((r) => r.nReturned)) : null,
+    plan: first.plan ?? 'cortada',
+    indice: first.indice ?? null,
+    min: times.length ? Math.min(...times) : null,
+    mediana: times.length ? median(times) : null,
+    max: times.length ? Math.max(...times) : null,
+    totalDocsExamined: first.totalDocsExamined ?? null,
+    totalKeysExamined: first.totalKeysExamined ?? null,
+    nReturned: first.nReturned ?? null,
     tiempos: runs.map((r) => (r.cortada ? null : r.executionTimeMillis)),
   };
 };
 
-const fmt = (n) => (n === null || n === undefined ? '—' : n.toLocaleString('es-CO'));
-const fmtTime = (s) => (s.executionTimeMillis === null ? `> ${fmt(MAX_TIME_MS)} (cortada)` : fmt(s.executionTimeMillis));
-
-const verdict = (q) => {
-  const { conIndice: ix, sinIndice: cs } = q;
-  if (ix.plan !== 'IXSCAN') return { concluyente: false, texto: `La variante con índice no usó IXSCAN (${ix.plan}).` };
-  if (cs.plan !== 'COLLSCAN' && cs.plan !== 'cortada') return { concluyente: false, texto: `La variante forzada no usó COLLSCAN (${cs.plan}).` };
-  if (ix.executionTimeMillis === null) return { concluyente: false, texto: 'La variante con índice se cortó por maxTimeMS.' };
-  if (cs.executionTimeMillis === null) {
-    return { concluyente: true, texto: `${fmt(ix.executionTimeMillis)} ms con índice frente a más de ${fmt(MAX_TIME_MS)} ms sin él (COLLSCAN cortado por maxTimeMS); al menos ${fmt(Math.floor(MAX_TIME_MS / Math.max(ix.executionTimeMillis, 1)))}× más rápido.` };
-  }
-  const ratio = cs.executionTimeMillis / Math.max(ix.executionTimeMillis, 1);
-  const docs = `${fmt(ix.totalDocsExamined)} documentos examinados frente a ${fmt(cs.totalDocsExamined)}`;
-  if (ratio < 2) return { concluyente: false, texto: `${fmt(ix.executionTimeMillis)} ms frente a ${fmt(cs.executionTimeMillis)} ms (${ratio.toFixed(1)}×): diferencia de tiempo pequeña; ${docs}.` };
-  return { concluyente: true, texto: `${fmt(ix.executionTimeMillis)} ms frente a ${fmt(cs.executionTimeMillis)} ms (${Math.round(ratio)}× más rápido); ${docs}.` };
+const factor = (ix, cs) => {
+  if (ix.mediana === null || cs.mediana === null) return null;
+  return ix.mediana === 0 ? `≥ ${fmt(cs.mediana)}× (índice en 0 ms)` : `${fmt(Math.round(cs.mediana / ix.mediana))}×`;
 };
 
-const toMarkdown = (meta, results) => {
-  const header = '| Consulta | Variante | Plan | `executionTimeMillis` (mediana) | `totalDocsExamined` | `totalKeysExamined` | `nReturned` |\n|---|---|---|---:|---:|---:|---:|';
-  const rows = results.flatMap((q) => [
-    `| ${q.id}. ${q.titulo} | Con \`${q.indice}\` | ${q.conIndice.plan} | ${fmtTime(q.conIndice)} | ${fmt(q.conIndice.totalDocsExamined)} | ${fmt(q.conIndice.totalKeysExamined)} | ${fmt(q.conIndice.nReturned)} |`,
-    `| | Sin índice (\`$natural\`) | ${q.sinIndice.plan} | ${fmtTime(q.sinIndice)} | ${fmt(q.sinIndice.totalDocsExamined)} | ${fmt(q.sinIndice.totalKeysExamined)} | ${fmt(q.sinIndice.nReturned)} |`,
-  ]);
-  const details = results.map((q) => [
-    `### ${q.id}. ${q.titulo}`,
-    '',
-    '```js',
-    q.consulta,
-    '```',
-    '',
-    `- **Índice:** \`${q.indice}\``,
-    `- **Campos:** \`${q.campos}\``,
-    `- **Tipo de índice:** ${q.tipo}`,
-    `- **Justificación:** ${q.justificacion}`,
-    `- **Tiempos por corrida (ms):** con índice ${q.conIndice.tiempos.map((t) => t ?? 'cortada').join(', ')}; sin índice ${q.sinIndice.tiempos.map((t) => t ?? 'cortada').join(', ')}`,
-    `- **Resultado:** ${q.veredicto.concluyente ? '' : '**No concluyente.** '}${q.veredicto.texto}`,
-    '',
-  ].join('\n'));
+const interpret = (q, ix, cs) => {
+  if (ix.plan !== 'IXSCAN') return `El planificador no eligió IXSCAN (${ix.plan}); la comparación no es válida.`;
+  if (cs.plan !== 'COLLSCAN') return `La variante forzada no usó COLLSCAN (${cs.plan}); la comparación no es válida.`;
+  const esperado = ix.indice === q.indiceEsperado ? '' : ` (se esperaba \`${q.indiceEsperado}\`)`;
+  const extra = ix.totalDocsExamined > ix.nReturned
+    ? ` El IXSCAN leyó ${fmt(ix.totalDocsExamined - ix.nReturned)} documentos que luego descartó.`
+    : ' Cada documento leído con el índice fue devuelto: el índice resuelve el filtro completo.';
+  return `El planificador usó \`${ix.indice}\`${esperado} y examinó ${fmt(ix.totalKeysExamined)} claves y ${fmt(ix.totalDocsExamined)} documentos para devolver ${fmt(ix.nReturned)}, frente a ${fmt(cs.totalDocsExamined)} documentos del COLLSCAN; la mediana bajó de ${fmt(cs.mediana)} ms a ${fmt(ix.mediana)} ms (${factor(ix, cs)}).${extra}`;
+};
+
+const toMarkdown = ({ meta, resultados }) => {
+  const gib = (b) => (b / 1024 ** 3).toFixed(1).replace('.', ',');
+  const rows = resultados.flatMap((q) => {
+    const ix = stats(q.conIndice);
+    const cs = stats(q.sinIndice);
+    const row = (variante, s, f) => `| ${variante} | ${s.plan}${s.indice ? ` (\`${s.indice}\`)` : ''} | ${s.corridas - s.cortadas}${s.cortadas ? ` (+${s.cortadas} cortadas)` : ''} | ${fmt(s.min)} | ${fmt(s.mediana)} | ${fmt(s.max)} | ${fmt(s.totalDocsExamined)} | ${fmt(s.totalKeysExamined)} | ${fmt(s.nReturned)} | ${f} |`;
+    return [
+      `| **${q.id}) ${q.titulo}** | | | | | | | | | |`,
+      row('Con índice (planificador)', ix, factor(ix, cs) ?? '—'),
+      row('Sin índice (`$natural`)', cs, '—'),
+    ];
+  });
+  const interpretations = resultados.map((q) => `- **${q.id})** \`${q.consulta}\` — ${interpret(q, stats(q.conIndice), stats(q.sinIndice))}`);
+  const timesPerRun = resultados.map((q) => `- **${q.id})** con índice: ${stats(q.conIndice).tiempos.map((t) => t ?? 'cortada').join(', ')} ms; COLLSCAN: ${stats(q.sinIndice).tiempos.map((t) => t ?? 'cortada').join(', ')} ms`);
+  const reducido = meta.corridasCollscan < meta.corridasIndice;
 
   return [
-    '# Benchmark de índices en `flujos_limpia`',
+    '# Optimización con índices en `flujos_limpia`',
     '',
-    `Generado por \`npm run db:explain\` (\`backend/scripts/benchmarkIndexes.js\`) el ${meta.fecha}.`,
+    `Generado por \`npm run db:explain\` (\`backend/scripts/benchmarkIndexes.js\`) a partir de \`docs/benchmark-indices.json\` (${meta.fecha}).`,
     '',
-    `- Colección: \`${meta.baseDatos}.${meta.coleccion}\`, ${fmt(meta.documentosEstimados)} documentos (estimado), MongoDB ${meta.versionMongo}.`,
-    `- Cada variante se ejecutó ${meta.corridas} veces con \`explain("executionStats")\`; se reporta la mediana de \`executionTimeMillis\`.`,
-    '- "Con índice" fuerza el índice indicado con `hint`; "sin índice" fuerza `COLLSCAN` con `hint({ $natural: 1 })`. No se eliminó ningún índice ni se modificó ningún documento.',
-    `- \`maxTimeMS\` = ${fmt(meta.maxTimeMS)} ms por ejecución; una corrida que lo supera se marca como cortada y cuenta como infinita para la mediana.`,
-    '- En q5 (aggregate) las métricas son las del cursor que alimenta el `$group`.',
+    `- Colección \`${meta.baseDatos}.${meta.coleccion}\`: ${fmt(meta.documentos)} documentos, ${gib(meta.tamanoDatosBytes)} GiB de datos sin comprimir (${gib(meta.tamanoAlmacenamientoBytes)} GiB en disco). MongoDB ${meta.versionMongo}.`,
+    `- Equipo: ${gib(meta.ramBytes)} GiB de RAM; caché de WiredTiger de ${gib(meta.cacheWiredTigerBytes)} GiB.`,
+    `- Cada consulta se ejecutó sin \`limit\` con \`explain("executionStats")\`: ${meta.corridasIndice} corridas con el plan del planificador y ${meta.corridasCollscan} con COLLSCAN forzado.${reducido ? ' **Las corridas de COLLSCAN se redujeron** porque el total estimado superaba 1 hora.' : ''}`,
+    `- \`maxTimeMS\`: ${meta.maxTimeMS ? `${fmt(meta.maxTimeMS)} ms` : 'sin tope'}.`,
     '',
-    '## Resultados',
+    '## Índices',
     '',
-    header,
+    '| Índice | Campos | Tipo | Consulta que optimiza | Justificación |',
+    '|---|---|---|---|---|',
+    ...meta.indices.map((i) => `| \`${i.nombre}\` | \`${i.campos}\` | ${i.tipo} | ${i.consulta} | ${i.justificacion} |`),
+    '',
+    '## Comparación antes y después',
+    '',
+    '| Variante | Plan | Corridas | `executionTimeMillis` mín. | mediana | máx. | `totalDocsExamined` | `totalKeysExamined` | `nReturned` | Mejora (mediana) |',
+    '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|',
     ...rows,
     '',
-    '## Detalle por consulta',
+    'Tiempos por corrida, en orden de ejecución:',
     '',
-    ...details,
+    ...timesPerRun,
+    '',
+    '## Interpretación',
+    '',
+    ...interpretations,
+    '',
+    '## Notas',
+    '',
+    '- El "antes" no se obtuvo borrando los índices: se forzó el COLLSCAN con `hint({ $natural: 1 })`, que recorre la colección en orden natural igual que si el índice no existiera. Así no se tocaron índices ni datos. El "después" es el plan que elige el planificador sin `hint`.',
+    `- Los tiempos dependen de la caché del sistema. La colección (${gib(meta.tamanoDatosBytes)} GiB) no cabe en la caché de WiredTiger (${gib(meta.cacheWiredTigerBytes)} GiB) ni en la RAM (${gib(meta.ramBytes)} GiB), así que cada COLLSCAN lee casi todo desde disco: son corridas en frío aunque se repitan. Las corridas con índice tocan pocas claves y documentos; la primera de cada consulta puede ir en frío y las siguientes en caliente, por eso se reportan mínimo, mediana y máximo.`,
+    `- Durante la medición estaban en marcha: ${meta.procesosEnMarcha}.`,
+    '',
   ].join('\n');
 };
 
 try {
   await connectDB();
+  const db = getDB();
   const collection = getFlowsCollection();
-  const buildInfo = await getDB().admin().buildInfo();
+  const buildInfo = await db.admin().buildInfo();
+  const serverStatus = await db.admin().command({ serverStatus: 1 });
+  const collStats = await db.command({ collStats: flowsCollectionName });
   const selected = queries.filter((q) => !ONLY || ONLY.includes(q.id));
-  const results = [];
+  const resultados = [];
 
   for (const query of selected) {
     console.error(`[BENCH] ${query.id}: ${query.titulo}`);
-    const { kind, filter, sort, pipeline, ...info } = query;
-    const conIndice = summarize(await runVariant(collection, query, query.indice));
-    const sinIndice = summarize(await runVariant(collection, query, { $natural: 1 }));
-    const result = { ...info, conIndice, sinIndice };
-    result.veredicto = verdict(result);
-    results.push(result);
+    const { filter, ...info } = query;
+    const conIndice = await runVariant(collection, query, null, RUNS);
+    const sinIndice = await runVariant(collection, query, { $natural: 1 }, RUNS_COLLSCAN);
+    resultados.push({ ...info, filtro: filter, conIndice, sinIndice });
   }
 
   const meta = {
     fecha: new Date().toISOString(),
-    baseDatos: getDB().databaseName,
+    baseDatos: db.databaseName,
     coleccion: flowsCollectionName,
-    documentosEstimados: await collection.estimatedDocumentCount(),
+    documentos: await collection.estimatedDocumentCount(),
+    tamanoDatosBytes: collStats.size,
+    tamanoAlmacenamientoBytes: collStats.storageSize,
     versionMongo: buildInfo.version,
-    corridas: RUNS,
+    ramBytes: os.totalmem(),
+    cacheWiredTigerBytes: serverStatus.wiredTiger?.cache?.['maximum bytes configured'] ?? null,
+    corridasIndice: RUNS,
+    corridasCollscan: RUNS_COLLSCAN,
     maxTimeMS: MAX_TIME_MS,
+    procesosEnMarcha: process.env.BENCH_PROCESOS || 'no anotado',
+    indices,
   };
-  const markdown = toMarkdown(meta, results);
 
   await fs.mkdir(docsDir, { recursive: true });
-  await fs.writeFile(path.join(docsDir, 'benchmark-indices.md'), `${markdown}\n`);
-  await fs.writeFile(path.join(docsDir, 'benchmark-indices.json'), `${JSON.stringify({ meta, resultados: results }, null, 2)}\n`);
+  await fs.writeFile(jsonPath, `${JSON.stringify({ meta, resultados }, null, 2)}\n`);
+  const markdown = toMarkdown(JSON.parse(await fs.readFile(jsonPath, 'utf8')));
+  await fs.writeFile(mdPath, markdown);
   console.log(markdown);
-  console.error(`[BENCH] Guardado en ${path.join(docsDir, 'benchmark-indices.md')} y .json`);
+  console.error(`[BENCH] Guardado en ${jsonPath} y ${mdPath}`);
 } catch (error) {
   console.error('[DB] No se pudo completar el benchmark:', error.message);
   process.exitCode = 1;
