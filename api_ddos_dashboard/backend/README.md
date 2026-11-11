@@ -1,6 +1,6 @@
 # API Backend
 
-La API consulta la colección de MongoDB indicada por `DB_COLLECTION` (por defecto, `flujos`) dentro de la base indicada por `DB_NAME`. Al iniciar, verifica el ping y que la colección exista; si la configuración es incorrecta, no inicia el servidor.
+La API consulta la colección de MongoDB indicada por `DB_COLLECTION` (por defecto, `flujos_limpia`) dentro de la base indicada por `DB_NAME`. Al iniciar, verifica el ping y que la colección exista; si la configuración es incorrecta, no inicia el servidor.
 
 Configura `PORT`, `MONGO_URI`, `DB_NAME` y `DB_COLLECTION` en `backend/.env`, y ejecuta `npm start` desde `api_ddos_dashboard`. Si `OLLAMA_MODEL` no está instalado, establece uno disponible (por ejemplo, `OLLAMA_MODEL=qwen2.5:3b npm start`).
 

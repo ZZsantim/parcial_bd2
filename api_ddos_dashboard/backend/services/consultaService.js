@@ -15,13 +15,13 @@ const fieldDescription = [
   'Destination IP (string)',
   'Destination Port (number)',
   'Protocol (number)',
-  'Timestamp (string ISO-like: YYYY-MM-DD HH:mm:ss.ffffff)',
+  'Timestamp (string: YYYY-MM-DD HH:mm:ss)',
   'Flow Duration (number, microseconds)',
   'Total Fwd Packets (number)',
   'Total Backward Packets (number)',
   'Total Length of Fwd Packets (number)',
   'Total Length of Bwd Packets (number)',
-  'Flow Bytes/s (number)',
+  'Flow Bytes/s (number; absent when the original value was Infinity or NaN)',
   'Flow Packets/s (number)',
   'Fwd Packets/s (number)',
   'Bwd Packets/s (number)',
@@ -38,7 +38,7 @@ Convierte la pregunta en una consulta MongoDB de solo lectura y responde ÚNICAM
 {"pipeline":[{"$match":{...}},{"$group":{"_id":"$Label","cantidad":{"$sum":1}}},{"$sort":{"cantidad":-1}}],"explanation":"Explicación breve en español"}
 
 La consulta se ejecutará en una muestra de los 10 000 flujos más recientes, no en toda la colección.
-Si preguntan por ataques, tráfico malicioso o tipos DDoS, excluye Label BENIGN (puede aparecer como BENIGN, Benign o BENIGN con espacios). Si comparan explícitamente benigno contra ataque, conserva ambas clases.
+Si preguntan por ataques, tráfico malicioso o tipos DDoS, excluye Label BENIGN (siempre escrito exactamente como BENIGN). Si comparan explícitamente benigno contra ataque, conserva ambas clases.
 Si preguntan por los N primeros o más frecuentes, agrega $limit con N después de ordenar.
 Solo puedes usar etapas $match, $group, $project, $sort, $limit y $count.
 Solo puedes usar campos de estos documentos:
@@ -59,7 +59,7 @@ const excludeBenignForAttackQuestion = (question, pipeline) => {
   const comparesWithBenign = /\bbenign[oa]s?\b|\bcompar(ar|acion|a)\b|\bfrente a\b|\bcontra\b/.test(normalized);
   if (!asksAboutAttacks || comparesWithBenign) return pipeline;
 
-  const attackFilter = { Label: { $nin: ['BENIGN', 'Benign', 'BENIGN '] } };
+  const attackFilter = { Label: { $ne: 'BENIGN' } };
   if (pipeline[0]?.$match) {
     pipeline[0] = { $match: { $and: [attackFilter, pipeline[0].$match] } };
   } else {
@@ -82,7 +82,7 @@ export const prepararPipelineParaPregunta = (question, pipeline) => {
         $group: {
           _id: {
             $cond: [
-              { $in: ['$Label', ['BENIGN', 'Benign', 'BENIGN ']] },
+              { $eq: ['$Label', 'BENIGN'] },
               'BENIGN',
               'Ataque',
             ],

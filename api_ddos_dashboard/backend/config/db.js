@@ -10,7 +10,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const uri = process.env.MONGO_URI;
 const dbName = process.env.DB_NAME;
-const collectionName = process.env.DB_COLLECTION?.trim() || 'flujos';
+const collectionName = process.env.DB_COLLECTION?.trim() || 'flujos_limpia';
 
 if (!uri) {
   throw new Error('Falta configurar MONGO_URI en backend/.env');

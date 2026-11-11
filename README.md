@@ -11,7 +11,7 @@ npm test
 OLLAMA_MODEL=qwen2.5:3b npm start
 ```
 
-Configura MongoDB y Ollama en `api_ddos_dashboard/backend/.env`. El servicio local usa `ddos_db.flujos`, MongoDB en `127.0.0.1:27017` y el replica set `rs0`. El dashboard se sirve desde la API, normalmente en <http://localhost:3000>.
+Configura MongoDB y Ollama en `api_ddos_dashboard/backend/.env`. El servicio local usa `ddos_db.flujos_limpia` (CSV limpiados y tipados), MongoDB en `127.0.0.1:27017` y el replica set `rs0`. El dashboard se sirve desde la API, normalmente en <http://localhost:3000>.
 El comando de inicio selecciona el modelo local `qwen2.5:3b`; si instalas `kimi-k2.5`, puedes omitir `OLLAMA_MODEL` o configurar el modelo en el entorno.
 
 Comandos de base de datos:

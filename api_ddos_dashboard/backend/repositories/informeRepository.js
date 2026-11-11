@@ -2,7 +2,8 @@ import { getFlowsCollection } from '../config/db.js';
 import { serializeFlujo } from '../models/informe.js';
 
 const SAMPLE_SIZE = 10_000;
-const benignLabels = ['BENIGN', 'Benign', 'BENIGN '];
+// flujos_limpia normaliza todas las variantes de benigno a exactamente "BENIGN"
+const benignLabels = ['BENIGN'];
 
 const isAttack = {
   $not: [{ $in: ['$Label', benignLabels] }],

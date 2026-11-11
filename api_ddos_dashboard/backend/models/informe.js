@@ -8,7 +8,7 @@ export const serializeFlujo = (document) => ({
   protocolo: document.Protocol,
   tipo: document.Label,
   duracionFlujo: document['Flow Duration'],
-  bytesPorSegundo: document['Flow Bytes/s'],
+  bytesPorSegundo: document['Flow Bytes/s'] ?? null,
   paquetesOrigen: document['Total Fwd Packets'],
   paquetesDestino: document['Total Backward Packets'],
 });

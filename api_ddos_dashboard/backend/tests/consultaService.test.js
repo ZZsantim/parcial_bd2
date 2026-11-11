@@ -13,7 +13,7 @@ test('preserves benign and attack groups when the user asks for both counts', ()
       $group: {
         _id: {
           $cond: [
-            { $in: ['$Label', ['BENIGN', 'Benign', 'BENIGN ']] },
+            { $eq: ['$Label', 'BENIGN'] },
             'BENIGN',
             'Ataque',
           ],
@@ -33,7 +33,7 @@ test('excludes benign flows from attack-only questions', () => {
 
   assert.deepEqual(pipeline[0], {
     $match: {
-      Label: { $nin: ['BENIGN', 'Benign', 'BENIGN '] },
+      Label: { $ne: 'BENIGN' },
     },
   });
 });

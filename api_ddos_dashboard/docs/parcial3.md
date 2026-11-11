@@ -34,7 +34,7 @@ Los informes 1, 2 y 3 se vuelven a consultar automáticamente al recibir un even
 
 Las tres preguntas naturales de ejemplo están disponibles como sugerencias en el dashboard. La respuesta muestra explicación, pipeline generado, cantidad de resultados y salida de MongoDB. El backend valida etapas, campos y operadores permitidos, limita la consulta a 10 000 flujos y 100 resultados, y rechaza etapas de escritura.
 
-Ejecución comprobada con el modelo local `qwen2.5:3b` y `ddos_db.flujos`:
+Ejecución comprobada con el modelo local `qwen2.5:3b` sobre la colección anterior `ddos_db.flujos` (antes de la limpieza; los filtros de `BENIGN` ahora usan solo el valor exacto `"BENIGN"`):
 
 | Pregunta | Resultado real |
 |---|---|
@@ -83,13 +83,13 @@ Pipelines y resultados registrados en la prueba local:
 
 ## Base de datos y volumen
 
-La instancia local consultada contenía **70 427 637 documentos** en `ddos_db.flujos`.
+La instancia local consultada contiene **70 427 637 documentos** en `ddos_db.flujos_limpia`, cargados desde los 18 CSV limpios (sin columna de índice, nombres sin espacios, Infinity/NaN omitidos, `Label` normalizado y `Timestamp` como texto `YYYY-MM-DD HH:MM:SS`).
 
 | Métrica de `db.stats(1024*1024*1024)` | Valor observado |
 |---|---:|
-| `dataSize` (datos lógicos, sin índices) | 140.67 GiB |
-| `storageSize` (espacio de colección asignado en disco) | 17.90 GiB |
-| `indexSize` (índices, separado de los datos) | 4.79 GiB |
+| `dataSize` (datos lógicos, sin índices) | 139.07 GiB |
+| `storageSize` (espacio de colección asignado en disco) | 17.28 GiB |
+| `indexSize` (índices, separado de los datos) | 3.46 GiB |
 | `count` | 70 427 637 |
 
 El ejemplo de medición del PDF usa `db.stats(1024*1024*1024)` y solicita no sumar índices como si fueran datos. Con ese indicador, `dataSize` supera 20 GiB. La compresión de WiredTiger explica que el espacio asignado a la colección en disco sea menor; **si el docente interpreta el requisito como 20 GiB físicos en `storageSize`, hay que confirmar ese criterio y ampliar el dataset de forma legítima, no duplicando registros artificialmente**.
@@ -104,7 +104,7 @@ printjson({
   indexSizeGiB: stats.indexSize,
   collections: stats.collections
 });
-printjson(db.getSiblingDB("ddos_db").flujos.stats(1024 * 1024 * 1024));
+printjson(db.getSiblingDB("ddos_db").flujos_limpia.stats(1024 * 1024 * 1024));
 ```
 
 Los agregados de informes se ejecutan en MongoDB. El backend no descarga la colección completa para filtrar o agrupar. El resumen informa el conteo estimado de la colección y la cantidad analizada en la muestra; no presenta la estimación como un conteo exacto.
@@ -125,15 +125,15 @@ Los agregados de informes se ejecutan en MongoDB. El backend no descarga la cole
 
 Los pipelines de los informes parten por orden/limitación temporal, por lo que `idxtimestamp` es el índice principal de esa muestra. Los otros índices favorecen consultas filtradas por sus campos; no se afirma que cada índice se use en cada pipeline.
 
-Resultado de una ejecución local de `npm run db:explain`:
+Resultado de tres ejecuciones locales de `npm run db:explain` sobre `ddos_db.flujos_limpia`:
 
 | Consulta | Plan | `executionTimeMillis` | `totalDocsExamined` | `totalKeysExamined` | `nReturned` |
 |---|---|---:|---:|---:|---:|
-| `Label: BENIGN`, límite 50 | `IXSCAN` (`idx_label`) | 0 | 50 | 50 | 50 |
-| Misma consulta, baseline forzado | `COLLSCAN` | 0 | 189 | 0 | 50 |
-| Orden/selección de 10 000 por `Timestamp` | `IXSCAN` (`idxtimestamp`) | 10–17 | 0 | 10 000 | 10 000 |
+| `Label: BENIGN`, límite 50 | `IXSCAN` (`idx_label`) | 1 | 50 | 50 | 50 |
+| Misma consulta, baseline forzado | `COLLSCAN` | 0 | 50 | 0 | 50 |
+| Orden/selección de 10 000 por `Timestamp` | `IXSCAN` (`idxtimestamp`) | 46–73 | 0 | 10 000 | 10 000 |
 
-El filtro de etiqueta devolvió 50 documentos examinando 50 claves frente a 189 documentos en el baseline forzado. El tiempo redondeó a 0 ms en ambos casos; no debe interpretarse esa medición puntual como una mejora temporal estadísticamente concluyente. La consulta de muestra sí verifica el uso del índice temporal y el acceso cubierto (`totalDocsExamined: 0`). Ejecutar de nuevo el comando antes de presentar los resultados, preferiblemente en varias corridas controladas.
+El filtro de etiqueta devolvió 50 documentos examinando 50 claves. En `flujos_limpia` el baseline forzado también examina solo 50 documentos, porque el primer archivo importado (Portmap) empieza con flujos `BENIGN` y el `COLLSCAN` los encuentra de inmediato; con `limit 50` esta comparación no distingue ambos planes y no debe presentarse como mejora temporal. La consulta de muestra sí verifica el uso del índice temporal y el acceso cubierto (`totalDocsExamined: 0`). Ejecutar de nuevo el comando antes de presentar los resultados, preferiblemente en varias corridas controladas.
 
 La demostración local del Change Stream insertó, actualizó y eliminó un documento temporal con identificador único. Los tres eventos aparecieron en el navegador; los informes se refrescaron y el documento de prueba se eliminó al terminar.
 
@@ -146,7 +146,7 @@ flowchart LR
   Controllers["Controladores"]
   Services["Servicios"]
   Repositories["Repositorios<br/>agregaciones MongoDB"]
-  Mongo[("MongoDB<br/>ddos_db.flujos")]
+  Mongo[("MongoDB<br/>ddos_db.flujos_limpia")]
   LLM["Ollama local<br/>pregunta → pipeline"]
   ChangeStream["MongoDB Change Stream"]
   SSE["SSE /api/events/flows"]
@@ -207,7 +207,7 @@ npm run db:explain
 npm start
 ```
 
-Configurar `backend/.env` con `MONGO_URI`, `DB_NAME=ddos_db`, `DB_COLLECTION=flujos`, `PORT` y la configuración local de Ollama. Abrir `http://localhost:3000` (o el puerto configurado). MongoDB local usa `127.0.0.1:27017` y el replica set `rs0`.
+Configurar `backend/.env` con `MONGO_URI`, `DB_NAME=ddos_db`, `DB_COLLECTION=flujos_limpia`, `PORT` y la configuración local de Ollama. Abrir `http://localhost:3000` (o el puerto configurado). MongoDB local usa `127.0.0.1:27017` y el replica set `rs0`.
 
 En esta máquina está instalado `qwen2.5:3b`. Para iniciar el dashboard con ese modelo sin editar `.env`, usar `OLLAMA_MODEL=qwen2.5:3b npm start`; instalar `kimi-k2.5` o acordar el cambio del modelo predeterminado sigue pendiente.
 
