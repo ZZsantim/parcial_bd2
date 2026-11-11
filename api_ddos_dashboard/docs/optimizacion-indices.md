@@ -12,9 +12,9 @@ Generado por `npm run db:explain` (`backend/scripts/benchmarkIndexes.js`) a part
 | Índice | Campos | Tipo | Consulta que optimiza | Justificación |
 |---|---|---|---|---|
 | `idxtimestamp` | `{ Timestamp: 1 }` | Simple | (e) `{ Timestamp: { $gte, $lt } }` | Limita las consultas por ventana de tiempo al rango de claves pedido en lugar de recorrer los 70 M de flujos. |
-| `idx_label` | `{ Label: 1 }` | Simple | (b) `{ Label: "WebDDoS" }` | Filtrar por tipo de ataque es la consulta base de clasificación; en etiquetas raras el índice salta directo a pocas claves. |
+| `idx_label` | `{ Label: 1 }` | Simple | Filtros por `Label` sin rango de tiempo (no medida en este benchmark) | Filtrar por tipo de ataque es la consulta base de clasificación. Queda cubierto por el prefijo `Label` de `idx_label_timestamp` (ver Notas). |
 | `idx_source_ip` | `{ "Source IP": 1 }` | Simple | (a) `{ "Source IP": "104.27.33.64" }` | Investigar un host es una igualdad muy selectiva (1 577 IP distintas); sin índice hay que leer toda la colección. |
-| `idx_protocol` | `{ Protocol: 1 }` | Simple | (d) `{ Protocol: 0 }` | Solo hay tres protocolos, pero el 0 aparece en 3 998 flujos: en un valor raro un índice de baja cardinalidad sigue siendo selectivo. |
+| `idx_protocol` | `{ Protocol: 1 }` | Simple | Filtros por `Protocol` (no medida en este benchmark) | Baja cardinalidad: solo hay tres protocolos, así que solo es selectivo en el valor raro (0, con 3 998 flujos). Ver Notas. |
 | `idx_label_timestamp` | `{ Label: 1, Timestamp: -1 }` | Compuesto | (c) `{ Label: "BENIGN", Timestamp: { $gte, $lt } }` | Igualdad en `Label` como prefijo y rango en `Timestamp` dentro de esa etiqueta: solo se leen las claves de la ventana pedida. |
 
 ## Comparación antes y después
@@ -45,5 +45,6 @@ Tiempos por corrida, en orden de ejecución:
 
 ## Notas
 
+- `idx_label` e `idx_protocol` no se miden en este benchmark. `idx_label` queda cubierto por el prefijo del índice compuesto `idx_label_timestamp` (`{ Label: 1, Timestamp: -1 }`), que también resuelve una igualdad sobre `Label` sola; `idx_protocol` tiene baja cardinalidad (3 valores) y solo ayuda con el protocolo poco frecuente. Las mediciones de las consultas b y d están en el commit `73c8e8f`.
 - El "antes" no se obtuvo borrando los índices: se forzó el COLLSCAN con `hint({ $natural: 1 })`, que recorre la colección en orden natural igual que si el índice no existiera. Así no se tocaron índices ni datos. El "después" es el plan que elige el planificador sin `hint`.
 - Los tiempos dependen de la caché del sistema. La colección (139,1 GiB) no cabe en la caché de WiredTiger (7,4 GiB) ni en la RAM (15,7 GiB), así que cada COLLSCAN lee casi todo desde disco: son corridas en frío aunque se repitan. Las corridas con índice tocan pocas claves y documentos; la primera de cada consulta puede ir en frío y las siguientes en caliente, por eso se reportan mínimo, mediana y máximo.

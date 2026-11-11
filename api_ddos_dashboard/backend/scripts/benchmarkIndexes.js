@@ -8,6 +8,8 @@
 //   BENCH_RUNS_COLLSCAN=1   corridas con COLLSCAN forzado por consulta (cada una tarda minutos)
 //   BENCH_MAX_TIME_MS=...   tope por ejecución (por defecto sin tope); si se supera, la corrida se marca como cortada
 //   BENCH_ONLY=a,c          ejecutar solo algunas consultas
+//
+// Con --solo-md no se conecta a MongoDB ni mide: regenera el .md desde el JSON existente.
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -38,8 +40,8 @@ const indices = [
     nombre: 'idx_label',
     campos: '{ Label: 1 }',
     tipo: 'Simple',
-    consulta: '(b) `{ Label: "WebDDoS" }`',
-    justificacion: 'Filtrar por tipo de ataque es la consulta base de clasificación; en etiquetas raras el índice salta directo a pocas claves.',
+    consulta: 'Filtros por `Label` sin rango de tiempo (no medida en este benchmark)',
+    justificacion: 'Filtrar por tipo de ataque es la consulta base de clasificación. Queda cubierto por el prefijo `Label` de `idx_label_timestamp` (ver Notas).',
   },
   {
     nombre: 'idx_source_ip',
@@ -52,8 +54,8 @@ const indices = [
     nombre: 'idx_protocol',
     campos: '{ Protocol: 1 }',
     tipo: 'Simple',
-    consulta: '(d) `{ Protocol: 0 }`',
-    justificacion: 'Solo hay tres protocolos, pero el 0 aparece en 3 998 flujos: en un valor raro un índice de baja cardinalidad sigue siendo selectivo.',
+    consulta: 'Filtros por `Protocol` (no medida en este benchmark)',
+    justificacion: 'Baja cardinalidad: solo hay tres protocolos, así que solo es selectivo en el valor raro (0, con 3 998 flujos). Ver Notas.',
   },
   {
     nombre: 'idx_label_timestamp',
@@ -250,11 +252,20 @@ const toMarkdown = ({ meta, resultados }) => {
     '',
     '## Notas',
     '',
+    '- `idx_label` e `idx_protocol` no se miden en este benchmark. `idx_label` queda cubierto por el prefijo del índice compuesto `idx_label_timestamp` (`{ Label: 1, Timestamp: -1 }`), que también resuelve una igualdad sobre `Label` sola; `idx_protocol` tiene baja cardinalidad (3 valores) y solo ayuda con el protocolo poco frecuente. Las mediciones de las consultas b y d están en el commit `73c8e8f`.',
     '- El "antes" no se obtuvo borrando los índices: se forzó el COLLSCAN con `hint({ $natural: 1 })`, que recorre la colección en orden natural igual que si el índice no existiera. Así no se tocaron índices ni datos. El "después" es el plan que elige el planificador sin `hint`.',
     `- Los tiempos dependen de la caché del sistema. La colección (${gib(meta.tamanoDatosBytes)} GiB) no cabe en la caché de WiredTiger (${gib(meta.cacheWiredTigerBytes)} GiB) ni en la RAM (${gib(meta.ramBytes)} GiB), así que cada COLLSCAN lee casi todo desde disco: son corridas en frío aunque se repitan. Las corridas con índice tocan pocas claves y documentos; la primera de cada consulta puede ir en frío y las siguientes en caliente, por eso se reportan mínimo, mediana y máximo.`,
     '',
   ].join('\n');
 };
+
+if (process.argv.includes('--solo-md')) {
+  // Resultados del JSON y descripción de índices de este script; no se mide nada.
+  const { meta, resultados } = JSON.parse(await fs.readFile(jsonPath, 'utf8'));
+  await fs.writeFile(mdPath, toMarkdown({ meta: { ...meta, indices }, resultados }));
+  console.error(`[BENCH] ${mdPath} regenerado desde ${jsonPath} (sin medir)`);
+  process.exit(0);
+}
 
 try {
   await connectDB();
