@@ -19,6 +19,9 @@ Comandos de base de datos:
 ```bash
 npm run db:indexes
 npm run db:explain
+npm run db:resumenes
 ```
+
+`npm run db:resumenes` precalcula las colecciones resumen que alimentan los informes 1 a 8 sobre el dataset completo; ejecútalo antes de `npm start` (ver [backend/README.md](./api_ddos_dashboard/backend/README.md)).
 
 La implementación, sus informes, la arquitectura, la evidencia de volumen y los pendientes frente a la guía están documentados en [docs/parcial3.md](./api_ddos_dashboard/docs/parcial3.md).
