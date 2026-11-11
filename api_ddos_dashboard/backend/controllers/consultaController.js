@@ -18,6 +18,7 @@ export const consultar = async (req, res) => {
     }
     res.status(status).json({
       message: error.message || 'No se pudo procesar la consulta.',
+      ...(status === 504 && error.pipeline ? { pipeline: error.pipeline } : {}),
     });
   }
 };

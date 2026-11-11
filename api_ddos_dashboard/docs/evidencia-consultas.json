@@ -1,0 +1,605 @@
+{
+  "fecha": "2026-11-11T17:50:37.133Z",
+  "api": "http://127.0.0.1:3000",
+  "salud": {
+    "status": "ok",
+    "database": "connected",
+    "realtime": "connected",
+    "ollama": {
+      "status": "ready",
+      "model": "qwen3.5:9b"
+    },
+    "service": "api-ddos-dashboard",
+    "timestamp": "2026-11-11T17:50:36.954Z"
+  },
+  "consultas": [
+    {
+      "id": "a",
+      "pregunta": "¿Cuáles son los tipos de ataque más frecuentes?",
+      "http": 200,
+      "ms": 139882,
+      "respuesta": {
+        "explanation": "Se agrupan todos los flujos que no son BENIGN (es decir, todos los tipos de ataque) y se cuentan. Luego se ordenan de mayor a menor frecuencia para mostrar los más comunes.",
+        "pipeline": [
+          {
+            "$match": {
+              "$and": [
+                {
+                  "Label": {
+                    "$ne": "BENIGN"
+                  }
+                },
+                {
+                  "Label": {
+                    "$ne": "BENIGN"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "$group": {
+              "_id": "$Label",
+              "cantidad": {
+                "$sum": 1
+              }
+            }
+          },
+          {
+            "$sort": {
+              "cantidad": -1
+            }
+          }
+        ],
+        "totalResultados": 18,
+        "resultados": [
+          {
+            "_id": "TFTP",
+            "cantidad": 20082580
+          },
+          {
+            "_id": "Syn",
+            "cantidad": 6473789
+          },
+          {
+            "_id": "MSSQL",
+            "cantidad": 5787453
+          },
+          {
+            "_id": "DrDoS_SNMP",
+            "cantidad": 5159870
+          },
+          {
+            "_id": "DrDoS_DNS",
+            "cantidad": 5071011
+          },
+          {
+            "_id": "DrDoS_MSSQL",
+            "cantidad": 4522492
+          },
+          {
+            "_id": "DrDoS_NetBIOS",
+            "cantidad": 4093279
+          },
+          {
+            "_id": "UDP",
+            "cantidad": 3867155
+          },
+          {
+            "_id": "NetBIOS",
+            "cantidad": 3657497
+          },
+          {
+            "_id": "DrDoS_UDP",
+            "cantidad": 3134645
+          },
+          {
+            "_id": "DrDoS_SSDP",
+            "cantidad": 2610611
+          },
+          {
+            "_id": "DrDoS_LDAP",
+            "cantidad": 2179930
+          },
+          {
+            "_id": "LDAP",
+            "cantidad": 1915122
+          },
+          {
+            "_id": "DrDoS_NTP",
+            "cantidad": 1202642
+          },
+          {
+            "_id": "UDP-lag",
+            "cantidad": 366461
+          },
+          {
+            "_id": "Portmap",
+            "cantidad": 186960
+          },
+          {
+            "_id": "UDPLag",
+            "cantidad": 1873
+          },
+          {
+            "_id": "WebDDoS",
+            "cantidad": 439
+          }
+        ],
+        "alcance": "colección completa",
+        "tiempoMs": 114710
+      }
+    },
+    {
+      "id": "b",
+      "pregunta": "¿Cuántos flujos son benignos y cuántos son ataques?",
+      "http": 504,
+      "ms": 123994,
+      "respuesta": {
+        "message": "La consulta superó el tiempo máximo de 120000 ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.",
+        "pipeline": [
+          {
+            "$sort": {
+              "Label": 1
+            }
+          },
+          {
+            "$group": {
+              "_id": {
+                "$cond": [
+                  {
+                    "$eq": [
+                      "$Label",
+                      "BENIGN"
+                    ]
+                  },
+                  "BENIGN",
+                  "Ataque"
+                ]
+              },
+              "flujos": {
+                "$sum": 1
+              }
+            }
+          },
+          {
+            "$sort": {
+              "_id": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "c",
+      "pregunta": "¿Qué IP de origen tiene más ataques?",
+      "http": 504,
+      "ms": 123854,
+      "respuesta": {
+        "message": "La consulta superó el tiempo máximo de 120000 ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.",
+        "pipeline": [
+          {
+            "$match": {
+              "Label": {
+                "$ne": "BENIGN"
+              }
+            }
+          },
+          {
+            "$group": {
+              "_id": "$Source IP",
+              "cantidad": {
+                "$sum": 1
+              }
+            }
+          },
+          {
+            "$sort": {
+              "cantidad": -1
+            }
+          },
+          {
+            "$limit": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "d",
+      "pregunta": "¿Cuántos flujos hay por protocolo?",
+      "http": 504,
+      "ms": 123086,
+      "respuesta": {
+        "message": "La consulta superó el tiempo máximo de 120000 ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.",
+        "pipeline": [
+          {
+            "$group": {
+              "_id": "$Protocol",
+              "cantidad": {
+                "$sum": 1
+              }
+            }
+          },
+          {
+            "$sort": {
+              "cantidad": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "e",
+      "pregunta": "¿Cuántos ataques hay en cada hora del día?",
+      "http": 504,
+      "ms": 123990,
+      "respuesta": {
+        "message": "La consulta superó el tiempo máximo de 120000 ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.",
+        "pipeline": [
+          {
+            "$match": {
+              "$and": [
+                {
+                  "Label": {
+                    "$ne": "BENIGN"
+                  }
+                },
+                {
+                  "Label": {
+                    "$ne": "BENIGN"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "$project": {
+              "hora": {
+                "$substrBytes": [
+                  "$Timestamp",
+                  11,
+                  2
+                ]
+              }
+            }
+          },
+          {
+            "$group": {
+              "_id": "$hora",
+              "cantidad": {
+                "$sum": 1
+              }
+            }
+          },
+          {
+            "$sort": {
+              "cantidad": -1
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "resumenes": {
+    "general": {
+      "_id": "general",
+      "totalFlujos": 70427637,
+      "flujosDeAtaque": 70313809,
+      "bpsSuma": 52017445170782040,
+      "bpsN": 68256887,
+      "actualizadoEn": "2026-11-11T16:59:37.371Z",
+      "generacion": "6af4978a7688ba40fab05f91"
+    },
+    "label": [
+      {
+        "_id": "TFTP",
+        "flujos": 20082580,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:59:37.386Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "Syn",
+        "flujos": 6473789,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "MSSQL",
+        "flujos": 5787453,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "DrDoS_SNMP",
+        "flujos": 5159870,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "DrDoS_DNS",
+        "flujos": 5071011,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "DrDoS_MSSQL",
+        "flujos": 4522492,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "DrDoS_NetBIOS",
+        "flujos": 4093279,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "UDP",
+        "flujos": 3867155,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "NetBIOS",
+        "flujos": 3657497,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "DrDoS_UDP",
+        "flujos": 3134645,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "DrDoS_SSDP",
+        "flujos": 2610611,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "DrDoS_LDAP",
+        "flujos": 2179930,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "LDAP",
+        "flujos": 1915122,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "DrDoS_NTP",
+        "flujos": 1202642,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "UDP-lag",
+        "flujos": 366461,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "Portmap",
+        "flujos": 186960,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "BENIGN",
+        "flujos": 113828,
+        "esAtaque": false,
+        "actualizadoEn": "2026-11-11T16:59:34.581Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "UDPLag",
+        "flujos": 1873,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "WebDDoS",
+        "flujos": 439,
+        "esAtaque": true,
+        "actualizadoEn": "2026-11-11T16:55:08.284Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      }
+    ],
+    "ipsOrigen": [
+      {
+        "_id": "172.16.0.5",
+        "ataques": 70289460,
+        "etiquetas": [
+          "DrDoS_DNS",
+          "DrDoS_LDAP",
+          "DrDoS_MSSQL",
+          "DrDoS_NTP",
+          "DrDoS_NetBIOS",
+          "DrDoS_SNMP",
+          "DrDoS_SSDP",
+          "DrDoS_UDP",
+          "LDAP",
+          "MSSQL",
+          "NetBIOS",
+          "Portmap",
+          "Syn",
+          "TFTP",
+          "UDP",
+          "UDP-lag",
+          "UDPLag",
+          "WebDDoS"
+        ],
+        "actualizadoEn": "2026-11-11T16:59:37.421Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "192.168.50.1",
+        "ataques": 16270,
+        "etiquetas": [
+          "DrDoS_DNS",
+          "DrDoS_LDAP",
+          "DrDoS_MSSQL",
+          "DrDoS_NTP",
+          "DrDoS_NetBIOS",
+          "DrDoS_SNMP",
+          "DrDoS_SSDP",
+          "DrDoS_UDP",
+          "Syn",
+          "TFTP",
+          "UDP-lag",
+          "WebDDoS"
+        ],
+        "actualizadoEn": "2026-11-11T16:55:08.374Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "192.168.50.4",
+        "ataques": 8079,
+        "etiquetas": [
+          "LDAP",
+          "MSSQL",
+          "NetBIOS",
+          "Portmap",
+          "Syn",
+          "UDP",
+          "UDPLag"
+        ],
+        "actualizadoEn": "2026-11-11T16:55:08.374Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      }
+    ],
+    "protocolo": [
+      {
+        "_id": 17,
+        "flujos": 63396525,
+        "ataques": 63358914,
+        "actualizadoEn": "2026-11-11T16:59:37.410Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": 6,
+        "flujos": 7027114,
+        "ataques": 6953588,
+        "actualizadoEn": "2026-11-11T16:55:08.350Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": 0,
+        "flujos": 3998,
+        "ataques": 1307,
+        "actualizadoEn": "2026-11-11T16:55:08.350Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      }
+    ],
+    "hora": [
+      {
+        "_id": "09",
+        "flujos": 15657,
+        "ataques": 3273,
+        "actualizadoEn": "2026-11-11T16:59:37.402Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "10",
+        "flujos": 15769572,
+        "ataques": 15749685,
+        "actualizadoEn": "2026-11-11T16:55:08.328Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "11",
+        "flujos": 21529822,
+        "ataques": 21512010,
+        "actualizadoEn": "2026-11-11T16:55:08.328Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "12",
+        "flujos": 9373777,
+        "ataques": 9363166,
+        "actualizadoEn": "2026-11-11T16:55:08.328Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "13",
+        "flujos": 23566020,
+        "ataques": 23549568,
+        "actualizadoEn": "2026-11-11T16:55:08.328Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "14",
+        "flujos": 141320,
+        "ataques": 129333,
+        "actualizadoEn": "2026-11-11T16:55:08.328Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "15",
+        "flujos": 13501,
+        "ataques": 2705,
+        "actualizadoEn": "2026-11-11T16:55:08.328Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "16",
+        "flujos": 15300,
+        "ataques": 2948,
+        "actualizadoEn": "2026-11-11T16:55:08.328Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      },
+      {
+        "_id": "17",
+        "flujos": 2668,
+        "ataques": 1121,
+        "actualizadoEn": "2026-11-11T16:55:08.328Z",
+        "generacion": "6af4978a7688ba40fab05f91"
+      }
+    ],
+    "estado": {
+      "_id": "resumenes",
+      "error": null,
+      "inicio": "2026-11-11T16:27:54.870Z",
+      "recalculando": false,
+      "corte": "6af4978a0000000000000000",
+      "desactualizado": false,
+      "duracionMs": 1634586,
+      "generacion": "6af4978a7688ba40fab05f91",
+      "generadoEn": "2026-11-11T16:55:09.482Z",
+      "insercionesIncrementales": 0,
+      "motivo": null,
+      "tiemposMs": {
+        "resumen_base": 1633299,
+        "resumen_general": 49,
+        "resumen_label": 21,
+        "resumen_diario": 22,
+        "resumen_hora": 22,
+        "resumen_protocolo": 21,
+        "resumen_top_ips_origen": 21,
+        "resumen_top_ips_destino": 21,
+        "resumen_puerto_destino": 382
+      },
+      "ultimoIncremento": "2026-11-11T16:59:37.658Z"
+    }
+  }
+}

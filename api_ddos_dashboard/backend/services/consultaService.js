@@ -15,7 +15,9 @@ export const systemPrompt = `Eres un asistente de analítica para flujos de red 
 Convierte la pregunta en una consulta MongoDB de solo lectura y responde ÚNICAMENTE un objeto JSON válido con esta forma:
 {"pipeline":[{"$match":{...}},{"$group":{"_id":"$Label","cantidad":{"$sum":1}}},{"$sort":{"cantidad":-1}}],"explanation":"Explicación breve en español"}
 
-La consulta se ejecutará en una muestra de los 10 000 flujos más recientes, no en toda la colección.
+La consulta se ejecutará sobre la colección completa (unos 70 millones de flujos).
+Cuando la pregunta filtre por Label, Source IP, Protocol o Timestamp, pon ese $match como primera etapa: esos campos tienen índice.
+Si agrupas por Label, Source IP o Protocol sin filtrar, empieza con {"$sort":{"<ese campo>":1}}: así MongoDB recorre solo el índice.
 Si preguntan por ataques, tráfico malicioso o tipos DDoS, excluye Label BENIGN (siempre escrito exactamente como BENIGN). Si comparan explícitamente benigno contra ataque, conserva ambas clases.
 Si preguntan por los N primeros o más frecuentes, agrega $limit con N después de ordenar.
 Solo puedes usar etapas $match, $group, $project, $sort, $limit y $count.
@@ -56,7 +58,9 @@ const asksForBenignAttackCounts = (question) => {
 
 export const prepararPipelineParaPregunta = (question, pipeline) => {
   if (asksForBenignAttackCounts(question)) {
+    // El $sort por Label hace que MongoDB recorra solo idx_label (sin leer los documentos).
     return [
+      { $sort: { Label: 1 } },
       {
         $group: {
           _id: {
@@ -164,21 +168,27 @@ export const consultarEnLenguajeNatural = async (question) => {
       pipeline: [],
       totalResultados: 0,
       resultados: [],
-      muestra: 10_000,
+      alcance: 'colección completa',
+      tiempoMs: 0,
     };
   }
 
   const pipeline = prepararPipelineParaPregunta(question, generated.pipeline);
   validarPipeline(pipeline);
-  const results = await ejecutarConsultaGenerada(pipeline);
+  const inicio = Date.now();
+  const results = await ejecutarConsultaGenerada(pipeline).catch((error) => {
+    throw Object.assign(error, { pipeline });
+  });
+  const tiempoMs = Date.now() - inicio;
   return {
     explanation: asksForBenignAttackCounts(question)
-      ? 'Compara el conteo de flujos benignos y ataques en los 10 000 flujos más recientes.'
+      ? 'Compara el conteo de flujos benignos y ataques en la colección completa.'
       : generated.explanation,
     pipeline,
     totalResultados: results.length,
     resultados: results,
-    muestra: 10_000,
+    alcance: 'colección completa',
+    tiempoMs,
   };
 };
 

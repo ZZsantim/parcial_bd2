@@ -185,7 +185,7 @@
             <div class="assistant-intro">
               <p class="eyebrow">ANÁLISIS ASISTIDO</p>
               <h2>Pregunta a tus datos</h2>
-              <p>Escribe una pregunta en español. Ollama genera una consulta de solo lectura y MongoDB la ejecuta sobre los 10 000 flujos más recientes.</p>
+              <p>Escribe una pregunta en español. Ollama genera una consulta de solo lectura y MongoDB la ejecuta sobre la colección completa.</p>
               <div class="prompt-suggestions">
                 <button type="button" data-prompt="¿Cuáles son los tipos de ataque más frecuentes?">INFORME 9 · Tipos de ataque</button>
                 <button type="button" data-prompt="¿Cuántos flujos son benignos y cuántos son ataques?">INFORME 10 · Benignos vs. ataques</button>
@@ -199,7 +199,7 @@
               </div>
               <form class="question-form" id="questionForm">
                 <label class="sr-only" for="questionInput">Pregunta sobre los flujos de red</label>
-                <textarea id="questionInput" rows="2" maxlength="500" placeholder="Ej.: ¿Qué tipo de ataque aparece más en la muestra?" required></textarea>
+                <textarea id="questionInput" rows="2" maxlength="500" placeholder="Ej.: ¿Qué tipo de ataque aparece más?" required></textarea>
                 <button id="askButton" type="submit" aria-label="Enviar pregunta">Enviar <span aria-hidden="true">↑</span></button>
               </form>
               <p class="privacy-note">La pregunta y el esquema se envían a Ollama en esta máquina. No se envían documentos del dataset al modelo.</p>

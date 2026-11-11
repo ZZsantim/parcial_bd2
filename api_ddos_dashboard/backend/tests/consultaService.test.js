@@ -9,6 +9,7 @@ test('preserves benign and attack groups when the user asks for both counts', ()
   );
 
   assert.deepEqual(pipeline, [
+    { $sort: { Label: 1 } },
     {
       $group: {
         _id: {

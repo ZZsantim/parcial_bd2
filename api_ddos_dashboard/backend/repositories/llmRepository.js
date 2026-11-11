@@ -1,8 +1,9 @@
 import { getFlowsCollection } from '../config/db.js';
 import { NOMBRES_CAMPOS_FLUJO } from './esquemaFlujos.js';
 
-const SAMPLE_SIZE = 10_000;
 const RESULT_LIMIT = 100;
+// Tope de ejecución de la consulta generada sobre la colección completa.
+const QUERY_MAX_TIME_MS = Number(process.env.CONSULTA_MAX_TIME_MS || 120_000);
 const MAX_STAGES = 8;
 
 const sourceFields = new Set(NOMBRES_CAMPOS_FLUJO);
@@ -214,19 +215,22 @@ export const validarPipeline = (pipeline) => {
 
 export const ejecutarConsultaGenerada = async (pipeline) => {
   const validatedPipeline = validarPipeline(pipeline);
-  const records = await getFlowsCollection()
-    .aggregate(
-      [
-        { $sort: { Timestamp: -1 } },
-        { $limit: SAMPLE_SIZE },
-        ...validatedPipeline,
-        { $limit: RESULT_LIMIT },
-      ],
-      { maxTimeMS: 15_000, allowDiskUse: false },
-    )
-    .toArray();
-
-  return records;
+  try {
+    return await getFlowsCollection()
+      .aggregate(
+        [...validatedPipeline, { $limit: RESULT_LIMIT }],
+        { maxTimeMS: QUERY_MAX_TIME_MS, allowDiskUse: true },
+      )
+      .toArray();
+  } catch (error) {
+    if (error.code === 50 || error.codeName === 'MaxTimeMSExpired') {
+      throw Object.assign(
+        new Error(`La consulta superó el tiempo máximo de ${QUERY_MAX_TIME_MS} ms sobre la colección completa. Agrega un filtro (por ejemplo por Label, Source IP, Protocol o Timestamp) y vuelve a intentar.`),
+        { statusCode: 504 },
+      );
+    }
+    throw error;
+  }
 };
 
 export default { ejecutarConsultaGenerada, validarPipeline };

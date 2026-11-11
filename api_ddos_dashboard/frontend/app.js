@@ -324,7 +324,7 @@ const askQuestion = async (question) => {
       const details = document.createElement('details');
       details.className = 'answer-results';
       const summary = document.createElement('summary');
-      summary.textContent = `${result.totalResultados} resultado(s) · muestra de ${numberFormat.format(result.muestra)} flujos`;
+      summary.textContent = `${result.totalResultados} resultado(s) · ${result.alcance} · ${numberFormat.format(result.tiempoMs)} ms`;
       const output = document.createElement('pre');
       output.textContent = JSON.stringify(result.resultados, null, 2);
       details.append(summary, output);
@@ -334,7 +334,7 @@ const askQuestion = async (question) => {
     } else {
       const empty = document.createElement('p');
       empty.className = 'privacy-note';
-      empty.textContent = 'La consulta no encontró resultados en la muestra.';
+      empty.textContent = 'La consulta no encontró resultados en la colección.';
       pending.append(empty);
     }
   } catch (error) {
